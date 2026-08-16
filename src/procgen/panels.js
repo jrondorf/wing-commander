@@ -206,3 +206,214 @@ export function buildMacroCells(seed, cells, jitter = 0.85) {
   return { px, py, cells };
 }
 
+// ------------------------------------------------------------------ field build
+
+/**
+ * Rasterise the whole plating layout in one pass.
+ *
+ * Everything the later texture passes need about *layout* comes out of here, in
+ * the smallest types that survive the job — 2048² fields are 4 MB per byte of
+ * stride, so `panel` is a Uint16 and `edgePx` is a clamped byte.
+ *
+ * @param {number} size texture edge in texels
+ * @returns {{
+ *   panel: Uint16Array,      // stable plate index, for per-plate attribute tables
+ *   macro: Uint8Array,       // structural section index
+ *   seam: Float32Array,      // 0..1 groove profile (1 = centre of the cut)
+ *   seamAmp: Uint8Array,     // 0..255 how structural the winning cut is
+ *   rivet: Float32Array,     // 0..1 fastener dome
+ *   edgePx: Uint8Array,      // texels to nearest cut, clamped at 255
+ *   panelCount: number, macroCount: number
+ * }}
+ */
+export function buildPanelField(size, {
+  seed = 1,
+  panelScale = 1,
+  macroCells = 7,
+  treeCount = 4,
+  treeOpts = {},
+  rivetSpacing = 15,
+  rivetRadius = 2.15,
+  rivetInset = 6.5,
+  rivetChance = 0.55,
+} = {}) {
+  const S = size / 2048; // fastener geometry is authored at 2048²
+  const trees = [];
+  for (let i = 0; i < treeCount; i++) {
+    trees.push(buildPlateTree(seed * 7919 + i * 104729 + 13, treeOpts));
+  }
+  const maxLeaves = trees.reduce((m, t) => Math.max(m, t.leafCount), 1);
+  const { px: mpx, py: mpy } = buildMacroCells(seed, macroCells, 0.88);
+
+  const n = size * size;
+  const panel = new Uint16Array(n);
+  const macroOut = new Uint8Array(n);
+  const seamOut = new Float32Array(n);
+  const seamAmpOut = new Uint8Array(n);
+  const rivetOut = new Float32Array(n);
+  const edgeOut = new Uint8Array(n);
+
+  // Per-section constants: which plating tree, at what angle, at what gauge.
+  const nCells = macroCells * macroCells;
+  const cellTree = new Int32Array(nCells);
+  const cellCos = new Float32Array(nCells);
+  const cellSin = new Float32Array(nCells);
+  const cellRep = new Float32Array(nCells);
+  const cellOffX = new Float32Array(nCells);
+  const cellOffY = new Float32Array(nCells);
+  for (let i = 0; i < nCells; i++) {
+    cellTree[i] = (cellValue(i, seed + 31) * treeCount) | 0;
+    // Quantised to 15° steps — plating on a real airframe is machined, not organic.
+    const a = (Math.floor(cellValue(i, seed + 57) * 12) / 12) * Math.PI * 2;
+    cellCos[i] = Math.cos(a);
+    cellSin[i] = Math.sin(a);
+    cellRep[i] = (2.15 / Math.max(0.2, panelScale)) * (0.74 + cellValue(i, seed + 83) * 0.8);
+    cellOffX[i] = cellValue(i, seed + 101) * 3.7;
+    cellOffY[i] = cellValue(i, seed + 149) * 2.3;
+  }
+
+  // Fastener geometry, resolution-aware: below ~1.9 texels a rivet is a shimmering
+  // dot rather than a bolt head, so it fades out of the height field entirely and
+  // survives only as roughness breakup.
+  const rr = Math.max(1.05, rivetRadius * S);
+  const rivFade = Math.min(1, Math.max(0, (rr - 1.05) / 0.85));
+  const spacing = Math.max(rr * 3.4, rivetSpacing * S);
+  const inset = Math.max(rr * 2.1, rivetInset * S);
+  const invSpacing = 1 / spacing;
+
+  const cellPx = size / macroCells;
+  const inv = 1 / size;
+  const macroSeamPx = 3.2 * Math.max(0.35, S) + 1.6;
+
+  for (let y = 0; y < size; y++) {
+    const v = (y + 0.5) * inv;
+    const my = v * macroCells;
+    const myi = Math.floor(my);
+    const rowBase = y * size;
+    for (let x = 0; x < size; x++) {
+      const u = (x + 0.5) * inv;
+      const mx = u * macroCells;
+      const mxi = Math.floor(mx);
+
+      // --- macro worley (3×3 wrapped neighbourhood) --------------------------
+      let f1 = 1e9, f2 = 1e9, bestCell = 0;
+      for (let oy = -1; oy <= 1; oy++) {
+        const gy = myi + oy;
+        const wy = ((gy % macroCells) + macroCells) % macroCells;
+        const row = wy * macroCells;
+        const shiftY = gy - wy;
+        for (let ox = -1; ox <= 1; ox++) {
+          const gx = mxi + ox;
+          const wx = ((gx % macroCells) + macroCells) % macroCells;
+          const ci = row + wx;
+          const dx = mpx[ci] + (gx - wx) - mx;
+          const dy = mpy[ci] + shiftY - my;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < f1) { f2 = f1; f1 = d2; bestCell = ci; }
+          else if (d2 < f2) f2 = d2;
+        }
+      }
+      const macroEdgePx = (Math.sqrt(f2) - Math.sqrt(f1)) * 0.5 * cellPx;
+
+      // --- plating tree inside the section -----------------------------------
+      const ca = cellCos[bestCell], sa = cellSin[bestCell];
+      const rep = cellRep[bestCell];
+      let ru = (u * ca - v * sa) * rep + cellOffX[bestCell];
+      let rv = (u * sa + v * ca) * rep + cellOffY[bestCell];
+      const tileU = Math.floor(ru), tileV = Math.floor(rv);
+      ru -= tileU; rv -= tileV;
+
+      const ti = cellTree[bestCell];
+      const tr = trees[ti];
+      const tnx = tr.nx, tny = tr.ny, tcc = tr.cc, thalf = tr.half, tamp = tr.amp;
+      const tf = tr.front, tb = tr.back;
+      const domainPx = size / rep;
+
+      let node = tr.root;
+      let bestQ = 1e9, bestAmp = 0, bestAlong = 0, bestNode = -1;
+      let minPx = 1e9;
+      while (node >= 0) {
+        const d = tnx[node] * ru + tny[node] * rv - tcc[node];
+        const ad = d < 0 ? -d : d;
+        const q = ad / thalf[node];
+        if (q < bestQ) {
+          bestQ = q;
+          bestAmp = tamp[node];
+          bestAlong = (-tny[node] * ru + tnx[node] * rv) * domainPx;
+          bestNode = node;
+        }
+        const px = ad * domainPx;
+        if (px < minPx) minPx = px;
+        node = d >= 0 ? tf[node] : tb[node];
+      }
+      const leaf = node < 0 ? -node - 1 : 0;
+
+      // The plate-domain wrap is itself a structural joint, so the tile boundary
+      // reads as a deliberate panel line instead of a smear.
+      const bu = ru < 1 - ru ? ru : 1 - ru;
+      const bv = rv < 1 - rv ? rv : 1 - rv;
+      const bd = bu < bv ? bu : bv;
+      const bq = bd / 0.0042;
+      if (bq < bestQ) {
+        bestQ = bq;
+        bestAmp = 1;
+        bestAlong = (bu < bv ? rv : ru) * domainPx;
+        bestNode = -2;
+      }
+      const bdPx = bd * domainPx;
+      if (bdPx < minPx) minPx = bdPx;
+
+      // --- seam profile -------------------------------------------------------
+      // A groove with soft shoulders: flat-bottomed near the centre, easing out
+      // over the bevel so the normal map gets a real chamfer rather than a step.
+      let seam = 0;
+      if (bestQ < 1.45) {
+        const t = bestQ < 0.45 ? 0 : (bestQ - 0.45) / 1.0;
+        seam = 1 - t * t * (3 - 2 * t);
+      }
+
+      // Section seams are wider and deeper than plate seams and always win.
+      if (macroEdgePx < macroSeamPx * 2.4) {
+        const t = clamp(macroEdgePx / (macroSeamPx * 2.4));
+        const ms = 1 - t * t * (3 - 2 * t);
+        if (ms > seam) { seam = ms; bestAmp = 1; }
+        if (macroEdgePx < minPx) minPx = macroEdgePx;
+      }
+
+      // --- fasteners ----------------------------------------------------------
+      let riv = 0;
+      if (rivFade > 0 && bestAmp > 0.46 && bestNode !== -1) {
+        const nodeKey = (bestCell * 131 + (bestNode + 3) * 7919) >>> 0;
+        if (cellValue(nodeKey, seed + 211) < rivetChance) {
+          const adPx = bestQ * (bestNode >= 0 ? thalf[bestNode] : 0.0042) * domainPx;
+          const dPerp = adPx - inset;
+          const s = bestAlong * invSpacing;
+          const dAlong = (s - Math.floor(s) - 0.5) * spacing;
+          const dist = Math.sqrt(dPerp * dPerp + dAlong * dAlong);
+          if (dist < rr) {
+            // Dome profile, not a cylinder: bolt heads are round.
+            const k = 1 - dist / rr;
+            riv = Math.sqrt(k) * rivFade;
+          }
+        }
+      }
+
+      const i = rowBase + x;
+      macroOut[i] = bestCell;
+      seamOut[i] = seam;
+      seamAmpOut[i] = (bestAmp * 255) | 0;
+      rivetOut[i] = riv;
+      edgeOut[i] = minPx > 255 ? 255 : minPx | 0;
+      const tileKey = (tileU & 1) | ((tileV & 1) << 1);
+      panel[i] = (bestCell * maxLeaves + leaf + tileKey * nCells * maxLeaves) & 0xffff;
+    }
+  }
+
+  return {
+    panel, macro: macroOut, seam: seamOut, seamAmp: seamAmpOut,
+    rivet: rivetOut, edgePx: edgeOut,
+    panelCount: Math.min(65536, nCells * maxLeaves * 4),
+    macroCount: nCells,
+    macroCells, cellPx, maxLeaves,
+  };
+}
