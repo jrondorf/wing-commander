@@ -1080,6 +1080,18 @@ function composePass(P) {
       else if (kind === 5) { r = cBaseAlt[0]; g = cBaseAlt[1]; b = cBaseAlt[2]; }
       else { r = cBase[0]; g = cBase[1]; b = cBase[2]; }
 
+      // Pull the *paint* variants toward the base coat. Plates should be
+      // distinguishable at close range and read as one aircraft at distance; at
+      // full contrast they tile the hull into a patchwork instead. Bare metal
+      // (3) and primer (2) are left alone — they are rare and carry real meaning,
+      // so muting them would cost the hull its most interesting detail.
+      if (kind === 1 || kind === 4 || kind === 5) {
+        const K = 0.42;
+        r = cBase[0] + (r - cBase[0]) * K;
+        g = cBase[1] + (g - cBase[1]) * K;
+        b = cBase[2] + (b - cBase[2]) * K;
+      }
+
       // Per-plate paint batch, macro section tint, and broad mottling.
       // Broad mottling at 0.13 was doing as much work as the plate colours and
       // added to the camo read. Paint variation should be felt, not seen.
