@@ -129,7 +129,13 @@ for (const scenario of targets) {
   let note = '';
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await page.waitForFunction(() => window.__READY__ === true || window.__FATAL__, { timeout: timeoutMs, polling: 250 });
+    // NB: waitForFunction's second positional is `arg`, not options — passing the
+    // options object there silently falls back to the 30 s default timeout.
+    await page.waitForFunction(
+      () => window.__READY__ === true || window.__FATAL__,
+      null,
+      { timeout: timeoutMs, polling: 500 },
+    );
     const fatal = await page.evaluate(() => window.__FATAL__ ?? null);
     if (fatal) { ok = false; note = `FATAL: ${fatal}`; }
   } catch (e) {

@@ -38,14 +38,24 @@ export async function setupShot(game, { id, seconds = 5, seed = 1337 }) {
     // Yield periodically so the page stays responsive and Chromium does not kill us.
     if ((i & 127) === 0) await new Promise((r) => setTimeout(r, 0));
   }
+  // Compose the shot BEFORE the rendered tail. A camera repositioned on the last
+  // frame reads as a teleport to the velocity buffer and smears the whole image
+  // through motion blur; reframing first lets TAA history and motion vectors
+  // settle against a static camera.
+  await scene.beforeShot?.(ctx);
+  engine.post?.resetHistory?.();
+
   engine.renderEnabled = true;
   for (let i = 0; i < renderedTail; i++) {
     engine.step(1 / 60);
     await new Promise((r) => requestAnimationFrame(r));
   }
 
-  await scene.beforeShot?.(ctx);
   engine.step(1 / 60);
+  // Read the backbuffer in the SAME task as the render. The context is created
+  // without preserveDrawingBuffer, so yielding to rAF first lets the compositor
+  // clear it and every statistic comes back as pure black.
+  const frame = readFrameStats(engine);
   await new Promise((r) => requestAnimationFrame(r));
 
   window.__SHOT_STATS__ = {
@@ -53,7 +63,7 @@ export async function setupShot(game, { id, seconds = 5, seed = 1337 }) {
     modules: Object.keys(game.modules),
     missing: game.missing,
     ships: game.ships.length,
-    frame: readFrameStats(engine),
+    frame,
   };
   window.__READY__ = true;
 }

@@ -26,6 +26,67 @@ function lockCamera(game) {
   if (game.cameraRig) game.cameraRig.enabled = false;
 }
 
+/**
+ * Frame a subject from its real world-space bounds.
+ *
+ * Static "hero" shots cannot place the camera at setup time: the flight system
+ * flies the subject hundreds of metres downrange during warm-up. These shots call
+ * this from `beforeShot`, once the sim has settled, so the framing is composed
+ * against where the ship actually ended up and at a size derived from its bounds
+ * rather than a hardcoded distance.
+ *
+ * @param {number} azimuth   radians around the subject; 0 looks up its +Z
+ * @param {number} elevation radians above the horizon
+ * @param {number} fill      fraction of frame height the subject should occupy
+ */
+function frameSubject(engine, object, { azimuth = 0.7, elevation = 0.28, fill = 0.62, fov = 40, roll = 0 } = {}) {
+  const box = new THREE.Box3().setFromObject(object);
+  if (box.isEmpty()) return null;
+  const size = box.getSize(new THREE.Vector3());
+  const centre = box.getCenter(new THREE.Vector3());
+  const radius = Math.max(size.x, size.y, size.z) * 0.5;
+  const dist = (radius / Math.tan((fov * Math.PI) / 360)) / Math.max(0.05, fill);
+  const dir = new THREE.Vector3(
+    Math.cos(elevation) * Math.sin(azimuth),
+    Math.sin(elevation),
+    Math.cos(elevation) * Math.cos(azimuth),
+  );
+  engine.camera.fov = fov;
+  engine.camera.position.copy(centre).addScaledVector(dir, dist);
+  engine.camera.up.set(0, 1, 0);
+  engine.camera.lookAt(centre);
+  if (roll) engine.camera.rotateZ(roll);
+  engine.camera.updateProjectionMatrix();
+  engine.camera.updateMatrixWorld(true);
+  return { centre, size, dist };
+}
+
+/**
+ * Freeze the simulation for a static hero shot.
+ *
+ * Spawned ships that are not the player get an AI pilot attached, which flies them
+ * hundreds of metres downrange during warm-up and overrides any throttle the scene
+ * sets. For a composed still we want the subject exactly where it was placed, and a
+ * zero velocity field so motion blur leaves the frame sharp.
+ */
+function freezeSim(game) {
+  for (const name of ['ai', 'flight']) {
+    const sys = game.engine.getSystem(name);
+    if (sys) sys.enabled = false;
+  }
+}
+
+/** Hold a ship still so a hero shot composes against a fixed subject. */
+function anchor(ship) {
+  if (!ship?.body) return;
+  ship.body.velocity?.set?.(0, 0, 0);
+  ship.body.angularVelocity?.set?.(0, 0, 0);
+  ship.body.controls.throttle = 0;
+  // Engine bells should still read hot even with the ship parked.
+  ship.body.idleGlow = 0.4;
+  ship.anchored = true;
+}
+
 function usePlayerCockpit(game) {
   game.viewMode = 'cockpit';
   if (game.cameraRig) {
@@ -65,12 +126,17 @@ export const SHOT_SCENES = {
       lockCamera(game);
       game.world?.setPreset?.('nebula-teal');
       const ship = game.spawnShip('confed_vampire', { faction: 'confed', position: V(0, 0, 0), seed: 7 });
+      ctx.subject = ship;
       if (ship) {
         ship.group.rotation.set(0.06, -0.72, 0.14);
-        // Idle engine glow without full throttle, so the nozzles read as hot but calm.
-        if (ship.body) ship.body.controls.throttle = 0.35;
+        anchor(ship);
       }
-      frame(engine, V(26, 9.5, 32), V(0, 0.5, 0), { fov: 38 });
+      freezeSim(game);
+    },
+    beforeShot(ctx) {
+      // Three-quarter view from slightly above — the classic box-art angle, and the
+      // one that shows silhouette, panel detail and engine bells at once.
+      if (ctx.subject) frameSubject(ctx.engine, ctx.subject.group, { azimuth: 0.85, elevation: 0.24, fill: 0.55, fov: 38, roll: 0.03 });
     },
   },
 
@@ -133,9 +199,13 @@ export const SHOT_SCENES = {
       lockCamera(game);
       game.world?.setPreset?.('nebula-deep-blue');
       const cap = game.spawnShip('confed_carrier', { faction: 'confed', position: V(0, 0, 0), seed: 21 });
-      if (cap) cap.group.rotation.set(0.02, -0.5, 0.01);
+      ctx.subject = cap;
+      if (cap) { cap.group.rotation.set(0.02, -0.5, 0.01); anchor(cap); }
+      // Fighters near the camera side of the hull give the eye a scale reference.
       spawnWing(game, 'confed_vampire', 'confed', V(-260, -90, 420), 3, 60);
-      frame(engine, V(700, 190, 900), V(-40, -10, 0), { fov: 44 });
+    },
+    beforeShot(ctx) {
+      if (ctx.subject) frameSubject(ctx.engine, ctx.subject.group, { azimuth: 1.15, elevation: 0.18, fill: 0.7, fov: 44 });
     },
   },
 
@@ -148,8 +218,11 @@ export const SHOT_SCENES = {
       game.world?.setPreset?.('nebula-ember');
       const victim = game.spawnShip('alien_manta', { faction: 'nephilim', position: V(0, 0, 0), seed: 5 });
       ctx.victim = victim;
+      if (victim) anchor(victim);
       spawnWing(game, 'confed_vampire', 'confed', V(-140, 30, 260), 2, 70);
-      frame(engine, V(70, 26, 130), V(0, 0, 0), { fov: 42 });
+      // Frame the victim now — once it detonates its group may be gone, so the
+      // camera has to be composed on the blast site before the kill.
+      frameSubject(engine, victim?.group ?? engine.scene, { azimuth: 0.6, elevation: 0.22, fill: 0.28, fov: 42 });
     },
     tick(ctx, t) {
       // Detonate a little before the shot so the fireball is in its most

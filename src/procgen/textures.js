@@ -750,6 +750,21 @@ function buildHullSet(engine, {
   const maxLeaves = layout.maxLeaves;
   const nSections = layout.macroCount;
   const bare = sd.barePlate, prim = sd.primerPlate, lite = sd.lightPlate;
+
+  const mTone = new Float32Array(256);
+  const mStep = new Float32Array(256);
+  // Some structural sections are predominantly light — a white nose cone, a
+  // pale control surface. Scattering light plates uniformly instead produces a
+  // quilt, which is the fastest way to make a hull look procedurally generated.
+  // Must be built before the classification pass below, which biases by section.
+  const mLight = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    mTone[i] = (cellValue(i, iseed + 271) - 0.5) * 2;
+    mStep[i] = (cellValue(i, iseed + 311) - 0.5) * 0.010;
+    const q = cellValue(i, iseed + 353);
+    mLight[i] = q > 0.78 ? 0.45 : q > 0.6 ? 0.12 : -0.1;
+  }
+
   for (let i = 0; i < PC; i++) {
     const sec = ((i / maxLeaves) | 0) % nSections;
     const c = pRand[i] - mLight[sec] * 0.55;
@@ -757,18 +772,6 @@ function buildHullSet(engine, {
     else if (c < bare + prim) pKind[i] = 2;
     else if (c < bare + prim + lite * (1 + mLight[sec] * 2.6)) pKind[i] = 1;
     else if (c > 0.955 - mLight[sec] * 0.35) pKind[i] = 4;
-  }
-  const mTone = new Float32Array(256);
-  const mStep = new Float32Array(256);
-  // Some structural sections are predominantly light — a white nose cone, a
-  // pale control surface. Scattering light plates uniformly instead produces a
-  // quilt, which is the fastest way to make a hull look procedurally generated.
-  const mLight = new Float32Array(256);
-  for (let i = 0; i < 256; i++) {
-    mTone[i] = (cellValue(i, iseed + 271) - 0.5) * 2;
-    mStep[i] = (cellValue(i, iseed + 311) - 0.5) * 0.010;
-    const q = cellValue(i, iseed + 353);
-    mLight[i] = q > 0.78 ? 0.45 : q > 0.6 ? 0.12 : -0.1;
   }
 
   const hiTiles = Math.max(1, size / HI) | 0;
