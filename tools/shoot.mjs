@@ -36,7 +36,9 @@ const width = Number(flag('w', 1600));
 const height = Number(flag('h', 900));
 const tOverride = flag('t', null);
 const label = flag('label', '');
-const timeoutMs = Number(flag('timeout', 180_000));
+// Generous by default: under SwiftShader a 14s dogfight warm-up is ~840 physics
+// steps with AI and combat live, and cockpit-combat genuinely exceeded 180s.
+const timeoutMs = Number(flag('timeout', 420_000));
 
 let targets;
 if (has('all')) targets = SCENARIOS;

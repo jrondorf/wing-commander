@@ -58,7 +58,16 @@ void main() {
 }
 `;
 
-function createDustMotes(engine, { seed = 1, count = 2600, box = 460 } = {}) {
+/**
+ * Near-camera dust motes — cheap parallax that sells motion.
+ *
+ * Brightness here was authored against a tone-map exposure of 1.0. Exposure is now
+ * 3.2 (see the calibrated-constants table in ARCHITECTURE.md), which turned these
+ * into hard white specks scattered over every frame, reading as dead pixels or a
+ * dirty lens rather than dust. Values below are scaled back accordingly, and the
+ * count is reduced: motes should be felt as motion, not counted.
+ */
+function createDustMotes(engine, { seed = 1, count = 1100, box = 460 } = {}) {
   const rng = makeRng((seed ^ 0xd05) >>> 0);
   const pos = new Float32Array(count * 3);
   const col = new Float32Array(count * 3);
@@ -68,11 +77,13 @@ function createDustMotes(engine, { seed = 1, count = 2600, box = 460 } = {}) {
     pos[i * 3] = rng() * box;
     pos[i * 3 + 1] = rng() * box;
     pos[i * 3 + 2] = rng() * box;
-    const b = 0.10 + 0.55 * Math.pow(rng(), 2.4);
-    col[i * 3] = b;
-    col[i * 3 + 1] = b;
+    const b = 0.028 + 0.16 * Math.pow(rng(), 2.4);
+    // Very slightly cool rather than neutral: dust is lit by the nebula, and pure
+    // grey specks read as a compression artefact.
+    col[i * 3] = b * 0.92;
+    col[i * 3 + 1] = b * 0.97;
     col[i * 3 + 2] = b;
-    size[i] = 0.7 + rng() * 1.9;
+    size[i] = 0.6 + rng() * 1.4;
   }
 
   const geo = new THREE.BufferGeometry();

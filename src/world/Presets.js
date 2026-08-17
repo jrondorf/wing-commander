@@ -153,15 +153,20 @@ export const PRESETS = {
       seed: 148.6,
       scale: 2.05,
       warp: 2.7,
-      coverage: 0.31,
-      dust: 1.30,
+      // Ember's gas is emissive orange well over 1.0, so it blooms where the cooler
+      // presets stay dark. At the coverage the others use, thin gas lit that hot
+      // filled the entire sky with bright lacework and the frame had nowhere to
+      // rest. Warm presets need materially less coverage than cold ones for the
+      // same perceived density.
+      coverage: 0.20,
+      dust: 1.15,
       absorb: 4.6,
       exposure: 1.0,
       wall: v(-0.42, 0.10, -0.90),
       wallSoft: 0.9,
       galNormal: v(0.36, 0.88, 0.31),
-      gasHot: [1.55, 0.66, 0.22],
-      gasMid: [0.66, 0.205, 0.075],
+      gasHot: [0.95, 0.42, 0.15],
+      gasMid: [0.34, 0.115, 0.045],
       gasCool: [0.170, 0.055, 0.048],
       dustCol: [0.058, 0.030, 0.022],
       deep: [0.0215, 0.0115, 0.0105],
