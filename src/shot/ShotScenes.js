@@ -45,7 +45,12 @@ function frameSubject(engine, object, { azimuth = 0.7, elevation = 0.28, fill = 
   const size = box.getSize(new THREE.Vector3());
   const centre = box.getCenter(new THREE.Vector3());
   const radius = Math.max(size.x, size.y, size.z) * 0.5;
-  const dist = (radius / Math.tan((fov * Math.PI) / 360)) / Math.max(0.05, fill);
+  // Fit against whichever frame axis is tighter. Using vertical FOV alone pushes a
+  // wide, flat fighter far too far back: its bounding sphere is set by a 28 m
+  // wingspan while its on-screen height is only 7.6 m, so it lands small in frame.
+  const vTan = Math.tan((fov * Math.PI) / 360);
+  const hTan = vTan * engine.camera.aspect;
+  const dist = (radius / Math.min(vTan, hTan)) / Math.max(0.05, fill);
   const dir = new THREE.Vector3(
     Math.cos(elevation) * Math.sin(azimuth),
     Math.sin(elevation),
@@ -136,7 +141,9 @@ export const SHOT_SCENES = {
     beforeShot(ctx) {
       // Three-quarter view from slightly above — the classic box-art angle, and the
       // one that shows silhouette, panel detail and engine bells at once.
-      if (ctx.subject) frameSubject(ctx.engine, ctx.subject.group, { azimuth: 0.85, elevation: 0.24, fill: 0.55, fov: 38, roll: 0.03 });
+      // Longer lens and a tighter fill: 38mm-equivalent framing left the fighter
+      // adrift in the frame. A hero shot should be nearly filled by its subject.
+      if (ctx.subject) frameSubject(ctx.engine, ctx.subject.group, { azimuth: 0.85, elevation: 0.24, fill: 1.35, fov: 34, roll: 0.03 });
     },
   },
 

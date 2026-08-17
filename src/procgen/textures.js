@@ -75,7 +75,7 @@ export const HULL_STYLES = {
     markLight: '#e2e7ec', markDark: '#171b21', emissive: '#5ec8ff',
     roughBase: 0.42, roughSpread: 1.15, clearcoat: 0.26,
     panelScale: 1, macroCells: 4, seamDepth: 1, weld: 0.35, ribs: 0,
-    barePlate: 0.05, primerPlate: 0.022, lightPlate: 0.30, altPlate: 0.11,
+    barePlate: 0.04, primerPlate: 0.018, lightPlate: 0.12, altPlate: 0.05,
     oxidise: 0.25, organic: 0,
   },
   kilrathi: {
@@ -764,7 +764,10 @@ function buildHullSet(engine, {
     // Plates sit at slightly different heights — shimming and manufacturing
     // tolerance. A perfectly flush hull is a rendering, not a machine.
     pStep[i] = (cellValue(i, iseed + 137) - 0.42) * 0.011;
-    pKind[i] = cellValue(i, iseed + 5) < 0.5 ? 0 : 5;
+    // A 50/50 base/base-alt split gives every second plate a different paint and
+    // the hull reads as camouflage. Real airframes are overwhelmingly one colour;
+    // the alternate is an occasional replaced panel, not half the aircraft.
+    pKind[i] = cellValue(i, iseed + 5) < 0.84 ? 0 : 5;
   }
   // Second pass: classify with the owning section's bias folded in. `panel`
   // encodes `section * maxLeaves + leaf + tile * nCells * maxLeaves`, so the
@@ -1078,8 +1081,10 @@ function composePass(P) {
       else { r = cBase[0]; g = cBase[1]; b = cBase[2]; }
 
       // Per-plate paint batch, macro section tint, and broad mottling.
-      const toneK = 1 + tone * 0.055 + mTone[macro[i]] * 0.022
-        + (mottle - 0.5) * 0.13 + (fine - 0.5) * 0.06;
+      // Broad mottling at 0.13 was doing as much work as the plate colours and
+      // added to the camo read. Paint variation should be felt, not seen.
+      const toneK = 1 + tone * 0.045 + mTone[macro[i]] * 0.018
+        + (mottle - 0.5) * 0.055 + (fine - 0.5) * 0.05;
       r *= toneK; g *= toneK; b *= toneK;
 
       // ---- hard-surface substrate ------------------------------------------
