@@ -65,8 +65,10 @@ export function paletteFor(faction, variant = 'default') {
  * micro-detail. Deleted from the render path the moment MaterialLibrary exists.
  */
 function fallbackHullMaps(engine, style, seed) {
-  return engine.registry.get(`ships/fallbackmaps/${style}/${seed}`, () => {
-    const S = 512;
+  return engine.registry.get(`ships/fallbackmaps/${style}`, () => {
+    // 256² and cheap octave counts on purpose: this path only runs when the real
+    // texture pipeline is missing, and it must not cost seconds of load time.
+    const S = 256;
     const height = new Float32Array(S * S);
     const rough = new Uint8Array(S * S * 4);
     const panelScale = style === 'alien' ? 5 : 9;
@@ -76,8 +78,8 @@ function fallbackHullMaps(engine, style, seed) {
         const w = worley2(u * panelScale, v * panelScale, { seed, period: panelScale, jitter: 0.9 });
         const seam = clamp(1 - Math.min(1, (w.f2 - w.f1) * 9));         // panel gaps
         const tone = cellValue(w.id, seed);                              // per-plate tone
-        const grunge = fbm2(u * 18, v * 18, { seed: seed + 31, octaves: 5, period: 18 }) * 0.5 + 0.5;
-        const micro = fbm2(u * 90, v * 90, { seed: seed + 77, octaves: 3, period: 90 }) * 0.5 + 0.5;
+        const grunge = fbm2(u * 18, v * 18, { seed: seed + 31, octaves: 3, period: 18 }) * 0.5 + 0.5;
+        const micro = fbm2(u * 90, v * 90, { seed: seed + 77, octaves: 2, period: 90 }) * 0.5 + 0.5;
         // Rivet lattice: a soft dot grid along the plate seams.
         const rv = Math.max(0, 1 - 26 * Math.hypot(
           (u * panelScale * 3) % 1 - 0.5, (v * panelScale * 3) % 1 - 0.5)) * (style === 'alien' ? 0 : 1);
@@ -157,7 +159,10 @@ function fallbackHull(engine, { style, seed, palette, kind }) {
   const { ormMap, normalMap } = fallbackHullMaps(engine, style, seed);
   const env = fallbackEnvironment(engine);
   const isAlien = style === 'alien';
-  const colorHex = kind === 'panel' ? palette.panel : kind === 'metal' ? palette.metal : palette.base;
+  const colorHex = kind === 'panel' ? palette.panel
+    : kind === 'metal' ? palette.metal
+      : kind === 'accent' ? palette.accent
+        : palette.base;
   const m = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(colorHex),
     roughness: 1.0,
@@ -199,7 +204,10 @@ export function resolveMaterials(engine, { style, seed, palette, faction }) {
         try {
           return adopt(ML.createHullMaterial(engine, {
             style, seed: seed + kind.length, palette, kind,
-            color: kind === 'panel' ? palette.panel : kind === 'metal' ? palette.metal : palette.base,
+            color: kind === 'panel' ? palette.panel
+              : kind === 'metal' ? palette.metal
+                : kind === 'accent' ? palette.accent
+                  : palette.base,
           }));
         } catch (err) {
           console.warn('[ships] createHullMaterial failed, using fallback —', err?.message ?? err);
@@ -211,6 +219,7 @@ export function resolveMaterials(engine, { style, seed, palette, faction }) {
     const hull = mk('hull');
     const panel = mk('panel');
     const metal = mk('metal');
+    const accent = mk('accent');
 
     // Unlit interior: duct throats, hangar recesses, gear bays. Rough, dark, and
     // it is what sells "there is depth in there" next to a lit hull.
@@ -250,7 +259,7 @@ export function resolveMaterials(engine, { style, seed, palette, faction }) {
       let m = emissiveCache.get(k);
       if (m) return m;
       if (ML?.createEmissiveMaterial) {
-        try { m = ML.createEmissiveMaterial(engine, { color, intensity }); } catch { /* fall through */ }
+        try { m = ML.createEmissiveMaterial(engine, { color, intensity })?.clone(); } catch { /* fall through */ }
       }
       if (!m) {
         m = new THREE.MeshBasicMaterial({
@@ -258,12 +267,15 @@ export function resolveMaterials(engine, { style, seed, palette, faction }) {
           toneMapped: false, fog: false,
         });
       }
+      // Brightness variation rides in vertex colours so one material covers every
+      // emitter on the hull — see ShipAssembler#glow.
+      m.vertexColors = true;
       m.name = `emissive-${k}`;
       emissiveCache.set(k, m);
       return m;
     };
 
-    return { hull, panel, metal, dark, glass, chitin: chitin ?? hull, lights, emissive, palette, style };
+    return { hull, panel, metal, accent, dark, glass, chitin: chitin ?? hull, lights, emissive, palette, style };
   });
 }
 

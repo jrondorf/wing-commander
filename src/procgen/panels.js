@@ -95,9 +95,9 @@ export function buildPlateTree(seed, {
   maxDepth = 7,
   minEdge = 0.075,
   stopChance = 0.16,
-  rakeChance = 0.18,
-  seamWide = 0.0075,
-  seamFine = 0.0028,
+  rakeChance = 0.08,
+  seamWide = 0.0040,
+  seamFine = 0.0017,
   aspectBias = 1,
 } = {}) {
   const rng = makeRng(seed >>> 0 || 1);
@@ -121,11 +121,14 @@ export function buildPlateTree(seed, {
     // Cut across the long axis so plates stay reasonably chunky rather than slivered.
     let angle;
     const longIsX = w * aspectBias > h;
-    if (rng() < rakeChance && depth >= 1) {
+    // Rakes only on structural cuts. A raked scribe line between two small
+    // plates just produces slivers, and slivers are what makes a plating layout
+    // read as shattered glass instead of an airframe.
+    if (rng() < rakeChance && depth >= 1 && depth <= 2) {
       // Raked cut: 20–40° off the axis. Real airframes are full of these where a
       // panel wraps a curved section.
       const base = longIsX ? 0 : Math.PI / 2;
-      angle = base + (rng() < 0.5 ? 1 : -1) * (0.34 + rng() * 0.36);
+      angle = base + (rng() < 0.5 ? 1 : -1) * (0.42 + rng() * 0.28);
     } else {
       angle = longIsX ? 0 : Math.PI / 2;
       angle += rng.gauss(0, 0.012); // never perfectly true — a hand-built hull
@@ -223,6 +226,7 @@ export function buildMacroCells(seed, cells, jitter = 0.85) {
  *   seamAmp: Uint8Array,     // 0..255 how structural the winning cut is
  *   rivet: Float32Array,     // 0..1 fastener dome
  *   edgePx: Uint8Array,      // texels to nearest cut, clamped at 255
+ *   along: Uint8Array,       // arc length along that cut, wrapped to 256 texels
  *   panelCount: number, macroCount: number
  * }}
  */
@@ -252,6 +256,7 @@ export function buildPanelField(size, {
   const seamAmpOut = new Uint8Array(n);
   const rivetOut = new Float32Array(n);
   const edgeOut = new Uint8Array(n);
+  const alongOut = new Uint8Array(n);
 
   // Per-section constants: which plating tree, at what angle, at what gauge.
   const nCells = macroCells * macroCells;
@@ -263,8 +268,11 @@ export function buildPanelField(size, {
   const cellOffY = new Float32Array(nCells);
   for (let i = 0; i < nCells; i++) {
     cellTree[i] = (cellValue(i, seed + 31) * treeCount) | 0;
-    // Quantised to 15° steps — plating on a real airframe is machined, not organic.
-    const a = (Math.floor(cellValue(i, seed + 57) * 12) / 12) * Math.PI * 2;
+    // A small weighted set of structural axes, biased hard toward 0. Twelve free
+    // directions read as scattered; a real airframe runs its plating along a
+    // handful of frames and stringers.
+    const AX = [0, 0, 0, 0.436, 0.873, 1.222, 0.218, 1.396];
+    const a = AX[(cellValue(i, seed + 57) * AX.length) | 0];
     cellCos[i] = Math.cos(a);
     cellSin[i] = Math.sin(a);
     cellRep[i] = (2.15 / Math.max(0.2, panelScale)) * (0.74 + cellValue(i, seed + 83) * 0.8);
@@ -275,15 +283,17 @@ export function buildPanelField(size, {
   // Fastener geometry, resolution-aware: below ~1.9 texels a rivet is a shimmering
   // dot rather than a bolt head, so it fades out of the height field entirely and
   // survives only as roughness breakup.
-  const rr = Math.max(1.05, rivetRadius * S);
-  const rivFade = Math.min(1, Math.max(0, (rr - 1.05) / 0.85));
+  const rr = Math.max(0.85, rivetRadius * S);
+  // Below ~1.6 texels a bolt head cannot hold a shading gradient, so its push on
+  // the height field tapers off and it survives as albedo/roughness breakup only.
+  const rivFade = Math.min(1, Math.max(0, (rr - 0.8) / 0.8));
   const spacing = Math.max(rr * 3.4, rivetSpacing * S);
   const inset = Math.max(rr * 2.1, rivetInset * S);
   const invSpacing = 1 / spacing;
 
   const cellPx = size / macroCells;
   const inv = 1 / size;
-  const macroSeamPx = 3.2 * Math.max(0.35, S) + 1.6;
+  const macroSeamPx = 1.5 * Math.max(0.35, S) + 0.8;
 
   for (let y = 0; y < size; y++) {
     const v = (y + 0.5) * inv;
@@ -373,16 +383,16 @@ export function buildPanelField(size, {
       }
 
       // Section seams are wider and deeper than plate seams and always win.
-      if (macroEdgePx < macroSeamPx * 2.4) {
-        const t = clamp(macroEdgePx / (macroSeamPx * 2.4));
+      if (macroEdgePx < macroSeamPx * 2.0) {
+        const t = clamp(macroEdgePx / (macroSeamPx * 2.0));
         const ms = 1 - t * t * (3 - 2 * t);
-        if (ms > seam) { seam = ms; bestAmp = 1; }
+        if (ms > seam) { seam = ms; bestAmp = 1; bestNode = -1; }
         if (macroEdgePx < minPx) minPx = macroEdgePx;
       }
 
       // --- fasteners ----------------------------------------------------------
       let riv = 0;
-      if (rivFade > 0 && bestAmp > 0.46 && bestNode !== -1) {
+      if (bestAmp > 0.46 && bestNode !== -1) {
         const nodeKey = (bestCell * 131 + (bestNode + 3) * 7919) >>> 0;
         if (cellValue(nodeKey, seed + 211) < rivetChance) {
           const adPx = bestQ * (bestNode >= 0 ? thalf[bestNode] : 0.0042) * domainPx;
@@ -393,7 +403,7 @@ export function buildPanelField(size, {
           if (dist < rr) {
             // Dome profile, not a cylinder: bolt heads are round.
             const k = 1 - dist / rr;
-            riv = Math.sqrt(k) * rivFade;
+            riv = Math.sqrt(k);
           }
         }
       }
@@ -404,6 +414,9 @@ export function buildPanelField(size, {
       seamAmpOut[i] = (bestAmp * 255) | 0;
       rivetOut[i] = riv;
       edgeOut[i] = minPx > 255 ? 255 : minPx | 0;
+      // Arc length along the winning cut, wrapped to a byte. Weld beads ripple
+      // along it and any future feature that must march down a seam can use it.
+      alongOut[i] = ((bestAlong | 0) % 256 + 256) % 256;
       const tileKey = (tileU & 1) | ((tileV & 1) << 1);
       panel[i] = (bestCell * maxLeaves + leaf + tileKey * nCells * maxLeaves) & 0xffff;
     }
@@ -411,7 +424,7 @@ export function buildPanelField(size, {
 
   return {
     panel, macro: macroOut, seam: seamOut, seamAmp: seamAmpOut,
-    rivet: rivetOut, edgePx: edgeOut,
+    rivet: rivetOut, edgePx: edgeOut, along: alongOut, rivetHeightScale: rivFade,
     panelCount: Math.min(65536, nCells * maxLeaves * 4),
     macroCount: nCells,
     macroCells, cellPx, maxLeaves,

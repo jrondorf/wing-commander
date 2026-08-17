@@ -35,7 +35,7 @@ float sat(float x) { return clamp(x, 0.0, 1.0); }
 vec2  sat(vec2  x) { return clamp(x, 0.0, 1.0); }
 vec3  sat(vec3  x) { return clamp(x, 0.0, 1.0); }
 
-// Rec.709 luma. Named `luma` because three.js already injects `luminance`.
+// Rec.709 luma. Named luma() because three.js already injects luminance().
 float luma(vec3 c) { return dot(c, vec3(0.2126729, 0.7151522, 0.0721750)); }
 float maxc(vec3 c) { return max(c.r, max(c.g, c.b)); }
 

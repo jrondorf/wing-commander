@@ -179,12 +179,12 @@ export function paintMarkingLayer(size, {
   const stripeCount = style === 'capital' ? 1 : rng.int(1, 2);
   for (let i = 0; i < stripeCount; i++) {
     const y0 = (0.12 + rng() * 0.7) * size;
-    const h = (style === 'capital' ? 0.02 : 0.035 + rng() * 0.05) * size;
+    const h = (style === 'capital' ? 0.018 : 0.026 + rng() * 0.034) * size;
     const tilt = rng.gauss(0, 0.012);
     ctx.save();
     ctx.translate(0, y0);
     ctx.rotate(tilt);
-    ctx.globalAlpha = 0.9;
+    ctx.globalAlpha = 0.78;
     const col = rng() < 0.55 ? accent : paintLight;
     ctx.fillStyle = col;
     ctx.fillRect(-size * 0.1, 0, size * 1.2, h);
@@ -198,9 +198,10 @@ export function paintMarkingLayer(size, {
   // ---- squadron insignia ---------------------------------------------------
   const insigniaSpec = typeof insignia === 'string' ? { kind: insignia } : (insignia ?? {});
   const badgeCount = style === 'capital' ? 1 : 2;
+  // A squadron badge is roughly a hand-span on a real fighter, not a billboard.
   const squadron = insigniaSpec.text ?? SQUADRONS[(rng() * SQUADRONS.length) | 0];
   for (let i = 0; i < badgeCount; i++) {
-    const bs = (style === 'capital' ? 0.11 : 0.17) * size * (0.85 + rng() * 0.3);
+    const bs = (style === 'capital' ? 0.085 : 0.115) * size * (0.85 + rng() * 0.3) * (i ? 0.6 : 1);
     const bx = (0.16 + rng() * 0.68) * size;
     const by = (0.14 + rng() * 0.7) * size;
     ctx.save();
@@ -321,7 +322,7 @@ export function paintMarkingLayer(size, {
   // Markings are sprayed through stencils that have been used a hundred times and
   // then flown through a war — nibble them before they ever reach the albedo.
   weatherMask(ctx, size, size, {
-    rng, bite: 0.25 + wear * 0.5, grain: 0.12 + wear * 0.3, patches: 60,
+    rng, bite: 0.35 + wear * 0.6, grain: 0.18 + wear * 0.42, patches: 90,
   });
 
   return canvas;

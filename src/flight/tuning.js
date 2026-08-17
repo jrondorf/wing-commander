@@ -22,12 +22,19 @@
  *   `slipTau`. Small tau = the ship is on rails; large tau = Newtonian drift.
  *   Prophecy sits in between, and that lag is the "weight" players remember.
  *
- * SHIP STAT CONTRACT (ARCHITECTURE §5.4, written by agent-ships)
- *   stats = { mass, maxSpeed, accel, pitchRate, yawRate, rollRate, ... }
- *   `pitchRate/yawRate/rollRate` are read as DEGREES/second. A ship may opt out
- *   with `stats.rateUnits = 'rad'`. Everything is clamped into the per-class
- *   sanity ranges below, so a mis-unit'd stat degrades to "wrong but flyable"
- *   rather than "spins at 300 rev/s".
+ * SHIP STAT CONTRACT (ARCHITECTURE §5.4, `src/ships/stats.js`, agent-ships)
+ *   stats = { mass, length, maxSpeed, accel, retroAccel,
+ *             afterburnSpeed, afterburnAccel,
+ *             pitchRate, yawRate, rollRate,   // RADIANS/second
+ *             shields, armor, ... }
+ *   Turn rates arrive in rad/s. A stat block may opt out with
+ *   `stats.rateUnits = 'deg'`, and anything physically absurd (> 6.5 rad/s,
+ *   i.e. more than a revolution a second) is auto-detected as degrees.
+ *   Everything is then clamped into the per-class sanity ranges below, so a
+ *   mis-unit'd stat degrades to "wrong but flyable", never "spins at 300 rev/s".
+ *
+ *   Optional stats are used when present and derived from the class row when
+ *   not, so this module stays useful for ships nobody has authored yet.
  */
 
 export const DEG = Math.PI / 180;
@@ -47,7 +54,7 @@ export const FORWARD_SIGN = -1; // forward = FORWARD_SIGN * localZ
 // ---------------------------------------------------------------------------
 export const INTEGRATOR = {
   /** Hard ceiling on substeps per frame (cost guard). */
-  maxSubsteps: 16,
+  maxSubsteps: 24,
   /** A body never advances further than this in one substep, in metres. */
   maxTravelPerSubstep: 6.0,
   /**
@@ -142,14 +149,15 @@ const FIGHTER = {
   accel: 125,                   // m/s² toward the commanded speed
   accelRange: [40, 420],
   accelFromSpeed: 3.6,          // if stats.accel is missing: maxSpeed / this
-  decelScale: 1.35,             // slowing down is firmer than speeding up
-  brakeScale: 2.10,             // [BRAKE] held
-  fullStopScale: 2.60,          // [FULL STOP] — see fullStopEase below
+  decelScale: 1.35,             // fallback when stats.retroAccel is absent
+  brakeScale: 1.55,             // × decel, [BRAKE] held
+  fullStopScale: 1.35,          // × decel, [FULL STOP] — ~2.5 s from cruise to rest
 
   // -- afterburner ----------------------------------------------------------
+  // Used only when the stat block has no afterburnSpeed/afterburnAccel.
   abSpeedMult: 3.00,            // 450 -> 1350 m/s (brief: 1200-1600)
   abAccelMult: 3.60,            // the kick in the back
-  abDecelMult: 2.50,            // distinct falloff when released (~3.5 s to cruise)
+  abDecelMult: 1.80,            // distinct falloff when released (~2.5 s to cruise)
   abSpoolUp: 0.45,              // s, thrust ramp in
   abSpoolDown: 0.28,            // s, thrust ramp out
   abFuelDrain: 0.105,           // fuel/s -> ~9.5 s of continuous burn
@@ -172,10 +180,24 @@ const FIGHTER = {
   authorityFullFrac: 0.30,      // of maxSpeed
 
   // -- lateral slip (THE nuance) -------------------------------------------
-  slipTau: 0.95,                // s — velocity realigns to the nose
+  /**
+   * Time constant for the velocity vector to realign onto the nose. The steady
+   * crab angle in a max-rate turn is ~atan(turnRate · slipTau); at the Vampire's
+   * 77°/s that is 23° of visible skid, with the flight path lagging the nose by
+   * about a third of a second every time you pull. Larger = driftier.
+   * THIS IS THE SINGLE MOST FEEL-DEFINING NUMBER IN THE FILE.
+   */
+  slipTau: 0.32,
   slipTauSlide: 60,             // s — auto-slide/drift mode (~Newtonian)
-  slipTauStop: 0.40,            // s — while braking to a full stop
+  slipTauStop: 0.25,            // s — while braking to a full stop
   slipStrafeRelief: 2.60,       // grip loosens while the RCS is firing
+  /**
+   * THE HARD SPEED CAP. Total speed may not exceed the commanded speed by more
+   * than this. Skidding through a corner is allowed to scrub a little extra
+   * speed; it is not allowed to become a slingshot.
+   */
+  slipOverspeed: 1.20,
+  slideOverspeed: 2.40,         // ...relaxed in auto-slide, where drift is the point
 
   // -- RCS / strafe ---------------------------------------------------------
   rcsAccel: 45,                 // m/s² of lateral/vertical translation
@@ -185,6 +207,7 @@ const FIGHTER = {
   trimRate: 0.30,               // °/s of lazy wander when hands-off
   trimAccel: 0.045,             // m/s² of positional drift
   trimFreq: [0.37, 0.53, 0.29], // Hz-ish; three incommensurate rates = no loop
+  trimSpeedFloor: 0.50,         // m/s of headroom the speed cap always leaves
 
   // -- feel / feedback ------------------------------------------------------
   inertialDamping: 14,          // divisor turning raw m/s² into "felt" G
@@ -224,8 +247,8 @@ const HEAVY = {
   accelRange: [18, 220],
   accelFromSpeed: 5.5,
   decelScale: 1.25,
-  brakeScale: 1.80,
-  fullStopScale: 2.10,
+  brakeScale: 1.45,
+  fullStopScale: 1.30,
 
   abSpeedMult: 2.40,
   abAccelMult: 3.00,
@@ -244,15 +267,18 @@ const HEAVY = {
   angAccelBoost: 1.40,
   lowSpeedAuthority: 0.40,
 
-  slipTau: 1.55,
+  slipTau: 0.48,
   slipTauSlide: 90,
-  slipTauStop: 0.70,
+  slipTauStop: 0.40,
+  slipOverspeed: 1.18,
+  slideOverspeed: 2.20,
 
   rcsAccel: 24,
   rcsMaxSlide: 90,
 
   trimRate: 0.18,
   trimAccel: 0.030,
+  trimSpeedFloor: 0.35,
   inertialDamping: 18,
 
   radius: 22,
@@ -273,13 +299,13 @@ const CAPITAL = {
   className: 'capital',
   mass: 2_600_000,
   maxSpeed: 62,
-  maxSpeedRange: [22, 120],
+  maxSpeedRange: [22, 180],
   accel: 4.0,
-  accelRange: [0.8, 18],
+  accelRange: [0.8, 22],
   accelFromSpeed: 16,
   decelScale: 1.15,
-  brakeScale: 1.40,
-  fullStopScale: 1.60,
+  brakeScale: 1.30,
+  fullStopScale: 1.20,
 
   // "Flank speed" rather than a real afterburner.
   abSpeedMult: 1.25,
@@ -305,14 +331,17 @@ const CAPITAL = {
 
   slipTau: 6.0,
   slipTauSlide: 240,
-  slipTauStop: 3.0,
+  slipTauStop: 2.0,
   slipStrafeRelief: 1.40,
+  slipOverspeed: 1.12,
+  slideOverspeed: 1.80,
 
   rcsAccel: 2.6,
   rcsMaxSlide: 26,
 
   trimRate: 0.05,
   trimAccel: 0.012,
+  trimSpeedFloor: 0.15,
   inertialDamping: 45,
 
   radius: 300,
@@ -381,22 +410,39 @@ const clampN = (v, [lo, hi]) => (v < lo ? lo : v > hi ? hi : v);
  * The result is a flat, frozen-in-spirit record the FlightBody reads directly —
  * no lookups or unit maths inside the substep loop.
  */
+/**
+ * Turn rates arrive from `src/ships/stats.js` in rad/s. Anything above 6.5 rad/s
+ * (a revolution a second) is physically absurd for a ship and is therefore a
+ * degrees value that slipped through, so convert it. `stats.rateUnits` wins.
+ */
+function toDegPerSec(value, fallbackDeg, units) {
+  const v = Number(value);
+  if (!Number.isFinite(v) || v <= 0) return fallbackDeg;
+  if (units === 'deg') return v;
+  if (units === 'rad') return v * RAD;
+  return v > 6.5 ? v : v * RAD;
+}
+
 export function resolveTuning(stats = {}, classId = '') {
   const className = inferClass(stats, classId);
   const T = CLASS_TUNING[className];
-
-  const rateScale = stats.rateUnits === 'rad' ? RAD : 1; // stats in rad/s -> deg/s
+  const units = stats.rateUnits ?? null;
 
   const mass = Math.max(1, num(stats.mass, T.mass));
   const maxSpeed = clampN(num(stats.maxSpeed, T.maxSpeed), T.maxSpeedRange);
   const accel = clampN(num(stats.accel, maxSpeed / T.accelFromSpeed), T.accelRange);
+  // Retro thrusters are their own stat and are usually weaker than the main drive.
+  const decel = clampN(num(stats.retroAccel, accel * T.decelScale), [
+    T.accelRange[0] * 0.4, T.accelRange[1] * 2,
+  ]);
 
-  const pitchDeg = clampN(num(stats.pitchRate, T.pitchRate) * rateScale, T.pitchYawRange);
-  const yawDeg = clampN(num(stats.yawRate, T.yawRate) * rateScale, T.pitchYawRange);
-  const rollDeg = clampN(num(stats.rollRate, T.rollRate) * rateScale, T.rollRange);
+  const pitchDeg = clampN(toDegPerSec(stats.pitchRate, T.pitchRate, units), T.pitchYawRange);
+  const yawDeg = clampN(toDegPerSec(stats.yawRate, T.yawRate, units), T.pitchYawRange);
+  const rollDeg = clampN(toDegPerSec(stats.rollRate, T.rollRate, units), T.rollRange);
 
-  const abSpeed = maxSpeed * num(stats.abSpeedMult, T.abSpeedMult);
-  const abAccel = accel * num(stats.abAccelMult, T.abAccelMult);
+  // Authored afterburner numbers win over the class multipliers.
+  const abSpeed = Math.max(maxSpeed, num(stats.afterburnSpeed, maxSpeed * T.abSpeedMult));
+  const abAccel = Math.max(accel, num(stats.afterburnAccel, accel * T.abAccelMult));
 
   const pitchRate = pitchDeg * DEG;
   const yawRate = yawDeg * DEG;
@@ -412,14 +458,14 @@ export function resolveTuning(stats = {}, classId = '') {
     invMass: 1 / mass,
     maxSpeed,
     accel,
-    decel: accel * T.decelScale,
-    brakeAccel: accel * T.brakeScale,
-    fullStopAccel: accel * T.fullStopScale,
+    decel,
+    brakeAccel: decel * T.brakeScale,
+    fullStopAccel: decel * T.fullStopScale,
 
     // afterburner
     abSpeed,
     abAccel,
-    abDecel: accel * T.abDecelMult,
+    abDecel: Math.max(decel, accel * T.abDecelMult),
     abSpoolUp: T.abSpoolUp,
     abSpoolDown: T.abSpoolDown,
     abFuelDrain: num(stats.abFuelDrain, T.abFuelDrain),
@@ -448,6 +494,8 @@ export function resolveTuning(stats = {}, classId = '') {
     slipTauSlide: T.slipTauSlide,
     slipTauStop: T.slipTauStop,
     slipStrafeRelief: T.slipStrafeRelief,
+    slipOverspeed: T.slipOverspeed,
+    slideOverspeed: T.slideOverspeed,
 
     // rcs
     rcsAccel: num(stats.rcsAccel, T.rcsAccel),
@@ -457,6 +505,7 @@ export function resolveTuning(stats = {}, classId = '') {
     trimRate: T.trimRate * DEG,
     trimAccel: T.trimAccel,
     trimFreq: T.trimFreq,
+    trimSpeedFloor: T.trimSpeedFloor,
 
     // feel
     inertialDamping: T.inertialDamping,
@@ -464,7 +513,7 @@ export function resolveTuning(stats = {}, classId = '') {
     shakeDecay: T.shakeDecay,
 
     // collision
-    radius: Math.max(0.5, num(stats.radius, T.radius)),
+    radius: Math.max(0.5, num(stats.radius, num(stats.length, T.radius * 2) * 0.5)),
     restitution: T.restitution,
     collisionDamageScale: T.collisionDamageScale,
     collisionDamageExp: T.collisionDamageExp,

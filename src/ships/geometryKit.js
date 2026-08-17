@@ -491,7 +491,7 @@ export function intakeDuct(w, h, depth, {
     { pts: inner, z: -wall * 1.2 },
     { pts: deep, z: -depth },
   ], { capStart: false, capEnd: true, texel });
-  duct.scale(-1, 1, 1); // flip winding so we see the inside faces
+  invertShell(duct); // we look *into* the duct, so the shell faces inward
   return { lip, duct };
 }
 
@@ -550,8 +550,11 @@ export function wing({
     });
   }
   const g = loft(sections, { texel });
-  // Loft ran along +Z with chord on X; rotate so chord lies on Z and span on X.
+  // The loft ran along +Z with the chord on X. Rotate so the chord lies along Z
+  // (leading edge forward, at -Z) and then mirror so the span runs to starboard.
   g.rotateY(-Math.PI / 2);
+  g.scale(-1, 1, 1);
+  reverseWinding(g);
   return g;
 }
 
@@ -567,7 +570,7 @@ export function xform(geo, { pos, rot, quat, scale, mirror = false } = {}) {
   m.compose(p, q, s);
   const g = geo.clone();
   g.applyMatrix4(m);
-  if (mirror) flipWinding(g);
+  if (mirror) reverseWinding(g);
   return g;
 }
 
@@ -575,11 +578,16 @@ export function xform(geo, { pos, rot, quat, scale, mirror = false } = {}) {
 export function mirrorX(geo) {
   const g = geo.clone();
   g.scale(-1, 1, 1);
-  flipWinding(g);
+  reverseWinding(g);
   return g;
 }
 
-export function flipWinding(geo) {
+/**
+ * Reverse triangle orientation without touching normals. This is the correct fix
+ * after a mirroring transform — `applyMatrix4` already flipped the normals via the
+ * normal matrix, only the winding is left inside-out.
+ */
+export function reverseWinding(geo) {
   const idx = geo.getIndex();
   if (idx) {
     const a = idx.array;
@@ -598,6 +606,16 @@ export function flipWinding(geo) {
     if (geo.attributes.normal) swap(geo.attributes.normal.array, 3);
     if (geo.attributes.uv) swap(geo.attributes.uv.array, 2);
   }
+  return geo;
+}
+
+/**
+ * Turn a shell inside-out: reverse the winding *and* flip the normals, so an
+ * open loft becomes a surface you look into. Duct throats, hangar bays, gear
+ * wells — anywhere the camera needs to see the far wall of a recess.
+ */
+export function invertShell(geo) {
+  reverseWinding(geo);
   const n = geo.attributes.normal;
   if (n) { const a = n.array; for (let i = 0; i < a.length; i++) a[i] = -a[i]; n.needsUpdate = true; }
   return geo;

@@ -78,16 +78,35 @@ export class ShipAssembler {
     return this;
   }
 
-  /** Emissive geometry. Intensity runs 4–30; the post stack blooms it. */
+  /**
+   * Emissive geometry. Intensity runs 4–30 and the post stack blooms it.
+   *
+   * Every emitter on a ship should share one (colour, intensity) pair and vary its
+   * brightness through `tone`, which rides in the vertex colours — that keeps the
+   * whole glowing side of a hull inside a single draw call instead of one per
+   * brightness level.
+   */
   addEmissive(geo, color, intensity, opts = {}) {
     if (!geo) return this;
     return this.add(`emis:${color}|${intensity}`, geo, { tone: 1, jitter: 0, ...opts });
   }
 
-  /** One InstancedMesh per call — for greeble fields and turret batteries. */
+  /** Emissive in the ship's own glow colour — the common case. */
+  glow(geo, tone = 1, opts = {}) {
+    const p = this.mats.palette;
+    return this.addEmissive(geo, p.glow, p.glowIntensity, { tone, ...opts });
+  }
+
+  /**
+   * Instanced geometry. Calls that share a geometry and a bucket are folded into
+   * one InstancedMesh, so a ship can scatter greebles from several places without
+   * paying a draw call for each site.
+   */
   instance(geo, bucket, matrices, { castShadow = true } = {}) {
     if (!geo || !matrices.length) return this;
-    this.instances.push({ geo, bucket, matrices, castShadow });
+    const existing = this.instances.find((i) => i.geo === geo && i.bucket === bucket);
+    if (existing) { existing.matrices.push(...matrices); return this; }
+    this.instances.push({ geo, bucket, matrices: [...matrices], castShadow });
     return this;
   }
 
