@@ -166,7 +166,9 @@ export const SHOT_SCENES = {
     async setup(ctx) {
       const { game, engine } = ctx;
       ensureFallbackLight(engine);
-      game.world?.setPreset?.('nebula-ember');
+      // Teal rather than ember: tracers, engine glow and the cyan HUD all need to
+      // read against the sky, and the ember preset is currently far too busy.
+      game.world?.setPreset?.('nebula-teal');
       const p = game.spawnShip('confed_vampire', { faction: 'confed', position: V(0, 0, 0), isPlayer: true, seed: 3 });
       if (p?.body) p.body.controls.throttle = 0.85;
       usePlayerCockpit(game);
@@ -222,7 +224,10 @@ export const SHOT_SCENES = {
       const { game, engine } = ctx;
       ensureFallbackLight(engine);
       lockCamera(game);
-      game.world?.setPreset?.('nebula-ember');
+      // Deliberately a cold, dark sky. A fireball is warm and over-range, so it
+      // needs a background that contrasts with it — shot against the ember preset
+      // the explosion was indistinguishable from the nebula behind it.
+      game.world?.setPreset?.('nebula-deep-blue');
       const victim = game.spawnShip('alien_manta', { faction: 'nephilim', position: V(0, 0, 0), seed: 5 });
       ctx.victim = victim;
       if (victim) anchor(victim);
