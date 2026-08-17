@@ -14,6 +14,21 @@ import * as THREE from 'three';
  * All colours are **linear** HDR triples, not sRGB hex. The world renders with no
  * tone mapping (ARCHITECTURE §1.7) so cores above 1.0 are deliberate — that is
  * what feeds bloom and god rays downstream.
+ *
+ * On the three lighting numbers, because they are easy to under-set:
+ *
+ *   `star.intensity`  three.js divides Lambert diffuse by pi, so a hull reflects
+ *                     `albedo * intensity / pi` at full N·L. At the bible's floor of
+ *                     3 even a 0.25-albedo hull only reaches 0.24 linear; these sit
+ *                     in the upper half of the 3–6 band so the lit side lands near
+ *                     0.4–0.5 after ACES.
+ *   `envIntensity`    the *only* fill in the game — there is no hemisphere light by
+ *                     design — and a nebula PMREM is a very dark source, so this
+ *                     runs near 2 to keep the shadow side coloured rather than
+ *                     crushed. It also drives every metal reflection in the scene.
+ *   `star.rim`        scaled by PrimaryStar to ~15 % of key (bible §7). The triples
+ *                     below are near-unit so that ratio actually lands; a rim colour
+ *                     of 0.2 silently makes it 3 %.
  */
 
 const v = (x, y, z) => new THREE.Vector3(x, y, z).normalize();
@@ -51,11 +66,11 @@ export const PRESETS = {
       dir: v(-0.58, 0.40, 0.71),
       temperature: 7400,
       color: [0.72, 0.83, 1.0],
-      intensity: 4.6,
-      rim: [0.20, 0.52, 0.62],
+      intensity: 5.6,
+      rim: [0.36, 0.80, 0.94],
       angular: 0.0105,
     },
-    envIntensity: 1.15,
+    envIntensity: 1.95,
   },
 
   // ------------------------------------------------- magenta / hydrogen-alpha
@@ -83,11 +98,11 @@ export const PRESETS = {
       dir: v(0.34, 0.24, -0.91),
       temperature: 9200,
       color: [0.78, 0.85, 1.0],
-      intensity: 4.9,
-      rim: [0.52, 0.20, 0.48],
+      intensity: 5.8,
+      rim: [0.86, 0.34, 0.78],
       angular: 0.0090,
     },
-    envIntensity: 1.1,
+    envIntensity: 1.85,
   },
 
   // ---------------------------------------------------- ember / red-giant sky
@@ -115,11 +130,11 @@ export const PRESETS = {
       dir: v(-0.44, 0.31, -0.84),
       temperature: 3900,
       color: [1.0, 0.60, 0.38],
-      intensity: 3.9,
-      rim: [0.58, 0.24, 0.12],
+      intensity: 5.2,
+      rim: [0.94, 0.44, 0.22],
       angular: 0.0180,
     },
-    envIntensity: 1.2,
+    envIntensity: 2.05,
   },
 
   // ------------------------------------------------------- cold deep-blue rift
@@ -147,11 +162,11 @@ export const PRESETS = {
       dir: v(0.62, 0.40, 0.67),
       temperature: 11000,
       color: [0.80, 0.87, 1.0],
-      intensity: 5.2,
-      rim: [0.18, 0.30, 0.62],
+      intensity: 6.0,
+      rim: [0.30, 0.52, 0.98],
       angular: 0.0085,
     },
-    envIntensity: 1.05,
+    envIntensity: 1.75,
   },
 
   // ------------------------------------ the showcase: magenta core, teal rims
@@ -179,11 +194,11 @@ export const PRESETS = {
       dir: v(-0.52, 0.30, -0.80),
       temperature: 5100,
       color: [1.0, 0.80, 0.60],
-      intensity: 4.4,
-      rim: [0.42, 0.26, 0.44],
+      intensity: 5.5,
+      rim: [0.74, 0.46, 0.80],
       angular: 0.0140,
     },
-    envIntensity: 1.2,
+    envIntensity: 2.0,
   },
 };
 

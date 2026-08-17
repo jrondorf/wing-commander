@@ -13,6 +13,14 @@
  *
  * Channel packing follows glTF ORM — one RGB texture serves aoMap (.r),
  * roughnessMap (.g) and metalnessMap (.b).
+ *
+ * The second rule that matters: **albedo is a light budget.** A `MeshPhysicalMaterial`
+ * lit by one directional light reflects `albedo * intensity / pi * N·L`, so a hull
+ * painted at 0.07 linear under the art bible's intensity 3–6 tops out around 0.11 —
+ * a black cutout with a rim, no matter what the maps underneath it contain. Hull
+ * albedo therefore has to average 0.15–0.30 linear (which is also where real
+ * aircraft paint sits), and `adaptPalette` below exists to keep ship liveries from
+ * quietly collapsing it back down.
  */
 
 import * as THREE from 'three';
@@ -20,6 +28,101 @@ import { generateHullMaterialSet, HULL_STYLES } from '../procgen/textures.js';
 import { hashSeed } from '../core/Rand.js';
 
 const CLEARCOAT_RANGE = [0.15, 0.3];
+
+// ------------------------------------------------------------------ colour math
+
+const _ca = new THREE.Color();
+const _cb = new THREE.Color();
+
+/** Blend two sRGB hexes in linear light. `t = 0` keeps `a`. */
+function mixHex(a, b, t) {
+  return `#${_ca.set(a).lerp(_cb.set(b), t).getHexString()}`;
+}
+
+/** Scale a colour's linear luminance, keeping hue. */
+function scaleHex(a, k) {
+  _ca.set(a);
+  _ca.setRGB(Math.min(1, _ca.r * k), Math.min(1, _ca.g * k), Math.min(1, _ca.b * k));
+  return `#${_ca.getHexString()}`;
+}
+
+/**
+ * Ship liveries and the texture generator both use the names `base`, `panel`,
+ * `metal` and `accent`, but they do not mean the same thing, and taking the
+ * livery's word for it is what made every Confederation fighter render as a
+ * silhouette.
+ *
+ * A ship palette names its **darkest** hull tone `base` and its **lightest**
+ * `panel`. The generator's `base` is the *dominant* plate colour — roughly half
+ * the hull — so copying `base` across paints 50 % of the airframe in the darkest
+ * colour in the livery (`#4a5560`, 0.068 linear) and there is no key light inside
+ * the art bible's 3–6 range that can rescue that.
+ *
+ * So: the livery's two tones become the two *ends* of the scheme (`baseAlt` and
+ * `panelAlt`) and the generator's mid tones are interpolated between them. The
+ * livery still reads — same hues, same darkest and lightest values — but the hull
+ * spans them instead of pinning to the bottom.
+ *
+ * Palettes that speak the generator's own language (numeric plate rates, explicit
+ * `panelAlt`/`baseAlt`) are passed through untouched; a livery is recognised by
+ * the ship-only keys it carries.
+ */
+function adaptPalette(palette, kind) {
+  const isLivery = palette
+    && (palette.glow !== undefined || palette.dark !== undefined || palette.glowIntensity !== undefined);
+
+  let p;
+  if (!palette) p = {};
+  else if (!isLivery) p = { ...palette };
+  else {
+    // Which of the livery's two tones is the dark one is a convention, not a
+    // guarantee — the Nephilim livery pairs an ochre `base` with a *darker* green
+    // `panel`. Sort by luminance instead of trusting the names, or that scheme
+    // ends up inverted and the hull goes dark again.
+    let dark = palette.base ?? '#4a5560';
+    let light = palette.panel ?? '#c8cdd2';
+    const lum = (h) => { _ca.set(h); return _ca.r * 0.2126 + _ca.g * 0.7152 + _ca.b * 0.0722; };
+    if (lum(dark) > lum(light)) { const t = dark; dark = light; light = t; }
+    p = {
+      baseAlt: dark,
+      base: mixHex(dark, light, 0.26),
+      panel: mixHex(dark, light, 0.70),
+      panelAlt: light,
+    };
+    if (palette.metal) { p.metal = palette.metal; p.metalBright = scaleHex(palette.metal, 2.1); }
+    if (palette.accent) p.accent = palette.accent;
+    if (palette.glow) p.emissive = palette.glow;
+    // Carry through any generator-native keys the livery also happens to set.
+    for (const k of ['roughBase', 'roughSpread', 'clearcoat', 'barePlate', 'primerPlate',
+      'lightPlate', 'altPlate', 'oxidise', 'grime', 'streak', 'soot', 'markLight', 'markDark']) {
+      if (palette[k] !== undefined) p[k] = palette[k];
+    }
+  }
+
+  // Ship builders ask for four material slots per hull and expect them to differ.
+  // Biasing the plate-kind rates rather than the colours keeps every slot inside
+  // the same livery while giving the assembler real tonal separation to compose
+  // with — light plating over slate, bare alloy on spars, orange trim.
+  if (kind === 'panel') {
+    p.lightPlate = (p.lightPlate ?? 0.30) + 0.30;
+    p.altPlate = (p.altPlate ?? 0.11) + 0.12;
+  } else if (kind === 'metal') {
+    p.barePlate = 0.62;
+    p.lightPlate = 0.06;
+    p.altPlate = 0.02;
+    p.oxidise = (p.oxidise ?? 0.25) + 0.30;
+  } else if (kind === 'accent') {
+    const acc = p.accent ?? '#e07a2a';
+    p.base = acc;
+    p.baseAlt = scaleHex(acc, 0.55);
+    p.panel = mixHex(acc, '#ffffff', 0.30);
+    p.panelAlt = mixHex(acc, '#ffffff', 0.55);
+    p.lightPlate = 0.14;
+    p.altPlate = 0.05;
+    p.barePlate = 0.03;
+  }
+  return Object.keys(p).length ? p : null;
+}
 
 function keyOf(prefix, opts) {
   const parts = Object.keys(opts).sort().map((k) => {
@@ -38,37 +141,47 @@ function keyOf(prefix, opts) {
  * @param {object} opts
  * @param {'confed'|'kilrathi'|'alien'|'capital'|'civilian'} [opts.style='confed']
  * @param {number} [opts.seed=1]
- * @param {number} [opts.size=2048]
- * @param {object} [opts.palette] partial palette override (see HULL_STYLES)
+ * @param {number} [opts.size] texture edge; defaults by `kind` (2048 for the big
+ *        surfaces, 1024/512 for trim, which keeps four slots per hull inside the
+ *        VRAM budget)
+ * @param {object} [opts.palette] a ship livery or a generator palette — see
+ *        `adaptPalette`
+ * @param {'hull'|'panel'|'metal'|'accent'} [opts.kind='hull'] which of the four
+ *        slots a ship builder is asking for
  * @param {number} [opts.wear=0.5]
  * @param {number} [opts.panelScale=1]
  * @param {object|string} [opts.insignia]
  * @param {object} [opts.ports] real hardpoint UVs: {thrusters,muzzles,vents}
- * @param {number} [opts.emissiveIntensity=2.2] engine/running lights run hot
+ * @param {number} [opts.emissiveIntensity=4.0] running lights run hot (bible: 4–30)
  * @returns {THREE.MeshPhysicalMaterial}
  */
 export function createHullMaterial(engine, opts = {}) {
+  const kindOf = opts.kind ?? 'hull';
   const {
-    style = 'confed', seed = 1, size = 2048, palette = null, wear = 0.5,
-    panelScale = 1, insignia = null, ports = null,
-    emissiveIntensity = 2.2, envMapIntensity = 1.0, normalScale = 1,
+    style = 'confed', seed = 1,
+    size = kindOf === 'accent' ? 512 : kindOf === 'metal' ? 1024 : 2048,
+    palette = null, wear = 0.5,
+    panelScale = 1, insignia = null, ports = null, kind = 'hull',
+    emissiveIntensity = 4.0, envMapIntensity = 1.45, normalScale = 1.15,
     clearcoat = null, side = THREE.FrontSide, name = '',
   } = opts;
 
+  const pal = adaptPalette(palette, kind);
+
   const key = keyOf('mat/hull', {
-    style, seed, size, palette, wear, panelScale, insignia, ports,
+    style, seed, size, palette, kind, wear, panelScale, insignia, ports,
     emissiveIntensity, envMapIntensity, normalScale, clearcoat, side,
   });
 
   const build = () => {
-    const set = generateHullMaterialSet(engine, { size, seed, style, palette, wear, panelScale, insignia, ports });
+    const set = generateHullMaterialSet(engine, { size, seed, style, palette: pal, wear, panelScale, insignia, ports });
     const sd = set.style ?? HULL_STYLES[style] ?? HULL_STYLES.confed;
 
     // Painted surfaces have a thin lacquer over them; bare alien chitin does not.
     const cc = clearcoat ?? THREE.MathUtils.clamp(sd.clearcoat ?? 0.22, 0, 1);
 
     const mat = new THREE.MeshPhysicalMaterial({
-      name: name || `hull-${style}-${seed}`,
+      name: name || `hull-${style}-${kind}-${seed}`,
       map: set.map,
       normalMap: set.normalMap,
       normalScale: new THREE.Vector2(normalScale, normalScale),
@@ -83,7 +196,15 @@ export function createHullMaterial(engine, opts = {}) {
       metalness: 1,
       aoMapIntensity: 1,
       clearcoat: Math.min(CLEARCOAT_RANGE[1], Math.max(CLEARCOAT_RANGE[0], cc)),
-      clearcoatRoughness: 0.34,
+      // The lacquer is not a separate, perfectly smooth sheet floating above the
+      // paint: it follows the panel steps underneath it and it is polished where
+      // the crew wipe and dull where the grime sits. Reusing the hull's own normal
+      // and ORM maps costs nothing (both are already bound) and it removes the last
+      // constant-roughness term in the material.
+      clearcoatRoughnessMap: set.roughnessMap,
+      clearcoatRoughness: 0.78,
+      clearcoatNormalMap: set.normalMap,
+      clearcoatNormalScale: new THREE.Vector2(normalScale * 0.55, normalScale * 0.55),
       envMapIntensity,
       side,
       dithering: true,
@@ -134,30 +255,45 @@ export function createEmissiveMaterial(engine, {
  * is worth the real thing.
  */
 export function createGlassMaterial(engine, {
-  tint = 0x8fb6c8, transmission = 0.92, roughness = 0.06, thickness = 0.12,
-  ior = 1.46, opacity = 0.22, cheap = false, reflectivity = 0.6, name = '',
+  tint = 0x8fb6c8, transmission = 0.74, roughness = 0.07, thickness = 0.14,
+  ior = 1.5, opacity = 0.26, cheap = false, name = '',
 } = {}) {
-  const key = keyOf('mat/glass', { tint, transmission, roughness, thickness, ior, opacity, cheap, reflectivity });
-  const build = () => new THREE.MeshPhysicalMaterial({
-    name: name || 'canopy',
-    color: new THREE.Color(tint),
-    metalness: 0,
-    roughness,
-    transmission: cheap ? 0 : transmission,
-    thickness: cheap ? 0 : thickness,
-    ior,
-    attenuationColor: new THREE.Color(tint).multiplyScalar(0.85),
-    attenuationDistance: 2.5,
-    transparent: true,
-    opacity: cheap ? opacity : 1,
-    depthWrite: false,
-    clearcoat: 1,
-    clearcoatRoughness: 0.04,
-    reflectivity,
-    envMapIntensity: 1.6,
-    side: THREE.DoubleSide,
-    premultipliedAlpha: false,
-  });
+  const key = keyOf('mat/glass', { tint, transmission, roughness, thickness, ior, opacity, cheap });
+  const build = () => {
+    // Callers reach for the livery's engine-glow colour when they want "the blue
+    // of this faction", which as a *glass* colour is a saturated cyan sheet — a
+    // plastic toy canopy. Keep the hue, throw away the value: a real canopy is
+    // smoked, nearly black in its own body colour, and everything you see in it is
+    // reflection.
+    const body = _ca.set(tint).lerp(_cb.set(0x0b1218), 0.78).clone();
+    return new THREE.MeshPhysicalMaterial({
+      name: name || 'canopy',
+      color: body,
+      metalness: 0,
+      roughness,
+      transmission: cheap ? 0 : transmission,
+      thickness: cheap ? 0 : thickness,
+      ior,
+      attenuationColor: body.clone().multiplyScalar(0.7),
+      attenuationDistance: 1.6,
+      transparent: true,
+      opacity: cheap ? opacity : 1,
+      depthWrite: false,
+      // Hard, near-mirror lacquer: this is what smears the star into a specular
+      // streak across the canopy instead of a dot.
+      clearcoat: 1,
+      clearcoatRoughness: 0.035,
+      // Anti-reflective coating. A fighter canopy is vapour-coated and shifts
+      // gold-to-violet as it turns — the single cheapest tell that this is a real
+      // piece of aerospace glass and not an alpha-blended quad.
+      iridescence: 0.35,
+      iridescenceIOR: 1.34,
+      iridescenceThicknessRange: [240, 560],
+      envMapIntensity: 2.4,
+      side: THREE.DoubleSide,
+      premultipliedAlpha: false,
+    });
+  };
   return engine?.registry ? engine.registry.get(key, build) : build();
 }
 

@@ -45,55 +45,77 @@ import { buildPanelField } from './panels.js';
  * off-white panels and safety-orange accents; Kilrathi desaturated ochre and
  * oxidised bronze; nothing anywhere near a saturated primary.
  */
+/*
+ * A note on tone, because this is what decides whether the ship reads at all.
+ *
+ * These hexes are *sRGB albedo*, and the renderer works in linear light: `#4a5560`
+ * is 0.068 linear. A hull painted 80 % in that colour, lit by a single key at the
+ * art bible's intensity 3–6, reflects `0.068 * 5 / pi ≈ 0.11` at full N·L and rather
+ * less everywhere else — a black silhouette with a rim, which is exactly the failure
+ * this palette was rebuilt to fix.
+ *
+ * Real military airframes are two-tone: a dark camo grey *and* a light one, in
+ * roughly equal measure, which is also how Prophecy's Confed fighters read. So the
+ * bible's two Confederation colours are treated as the two halves of a scheme
+ * (`baseAlt` is its gunmetal `#4a5560` verbatim, `panelAlt` its off-white `#c8cdd2`)
+ * with `base`/`panel` bridging between them, and `lightPlate` raised until light
+ * plating is a genuine third of the hull rather than a rare accent. Mean linear
+ * albedo lands near 0.20 — squarely in the 0.15–0.35 band real aircraft paint sits
+ * in — and the plate-to-plate range spans 9:1, so panelling reads as panelling.
+ */
 export const HULL_STYLES = {
   confed: {
-    base: '#4a5560', baseAlt: '#434e59', panel: '#8b959e', panelAlt: '#c8cdd2',
-    primer: '#525a51', metal: '#8d949c', metalBright: '#c6ccd2',
-    accent: '#c96f2c', grime: '#23282d', soot: '#101113', streak: '#33383c',
-    markLight: '#d8dde2', markDark: '#171b21', emissive: '#5ec8ff',
-    roughBase: 0.40, roughSpread: 1, clearcoat: 0.24,
+    base: '#5b6672', baseAlt: '#4a5560', panel: '#98a3ac', panelAlt: '#c8cdd2',
+    // Primer shows where a plate has been replaced and not yet topcoated. Real
+    // zinc chromate is a strong yellow-green, but at this rate it reads as a
+    // palette mistake on a grey airframe rather than as maintenance, so it is
+    // pulled most of the way to neutral and kept rare.
+    primer: '#6b6d61', metal: '#9aa2ab', metalBright: '#d2d8de',
+    accent: '#e07a2a', grime: '#3d444b', soot: '#141517', streak: '#4b5259',
+    markLight: '#e2e7ec', markDark: '#171b21', emissive: '#5ec8ff',
+    roughBase: 0.42, roughSpread: 1.15, clearcoat: 0.26,
     panelScale: 1, macroCells: 4, seamDepth: 1, weld: 0.35, ribs: 0,
-    barePlate: 0.045, primerPlate: 0.03, lightPlate: 0.10,
+    barePlate: 0.05, primerPlate: 0.022, lightPlate: 0.30, altPlate: 0.11,
     oxidise: 0.25, organic: 0,
   },
   kilrathi: {
-    base: '#7a6540', baseAlt: '#6a5636', panel: '#8a7548', panelAlt: '#4a5340',
-    primer: '#5a3a24', metal: '#907f5e', metalBright: '#c0ad84',
-    accent: '#b08c33', grime: '#2a2418', soot: '#131009', streak: '#3a3324',
-    markLight: '#d9cba4', markDark: '#1d1810', emissive: '#b8ff4a',
-    roughBase: 0.52, roughSpread: 1.15, clearcoat: 0.14,
+    base: '#7a6540', baseAlt: '#5f4e30', panel: '#a08a55', panelAlt: '#b9a878',
+    primer: '#6a4a30', metal: '#a4926c', metalBright: '#d2c298',
+    accent: '#c89a38', grime: '#3d3524', soot: '#171309', streak: '#4a4130',
+    markLight: '#e3d5ae', markDark: '#1d1810', emissive: '#b8ff4a',
+    roughBase: 0.52, roughSpread: 1.25, clearcoat: 0.14,
     panelScale: 1.15, macroCells: 4, seamDepth: 1.3, weld: 0.7, ribs: 0.35,
-    barePlate: 0.09, primerPlate: 0.06, lightPlate: 0.12,
+    barePlate: 0.09, primerPlate: 0.06, lightPlate: 0.24, altPlate: 0.10,
     oxidise: 0.6, organic: 0.15,
   },
   alien: {
-    base: '#2f3a33', baseAlt: '#26302b', panel: '#46503f', panelAlt: '#1d2621',
-    primer: '#3a4436', metal: '#6d7a63', metalBright: '#a8b49a',
-    accent: '#8ea54a', grime: '#161c18', soot: '#0b0d0b', streak: '#232b24',
-    markLight: '#9fb27a', markDark: '#12170f', emissive: '#b8ff4a',
-    roughBase: 0.34, roughSpread: 1.3, clearcoat: 0.55,
+    base: '#43503f', baseAlt: '#2f3a33', panel: '#6a7660', panelAlt: '#8b9a78',
+    primer: '#3a4436', metal: '#7d8a72', metalBright: '#b6c2a6',
+    accent: '#9fb85a', grime: '#242c25', soot: '#0e110e', streak: '#333c33',
+    markLight: '#b7cb90', markDark: '#12170f', emissive: '#b8ff4a',
+    roughBase: 0.34, roughSpread: 1.35, clearcoat: 0.55,
     panelScale: 1.4, macroCells: 6, seamDepth: 0.7, weld: 0, ribs: 0.8,
-    barePlate: 0.05, primerPlate: 0.0, lightPlate: 0.28,
+    barePlate: 0.05, primerPlate: 0.0, lightPlate: 0.30, altPlate: 0.12,
     oxidise: 0.35, organic: 1,
   },
   capital: {
-    base: '#545b63', baseAlt: '#4c535b', panel: '#828a92', panelAlt: '#aab2b9',
-    primer: '#4e564b', metal: '#868d95', metalBright: '#bcc2c8',
-    accent: '#d1742c', grime: '#1f2327', soot: '#0e0f10', streak: '#2e3236',
-    markLight: '#ccd2d8', markDark: '#14181d', emissive: '#ffcf9a',
-    roughBase: 0.5, roughSpread: 1.1, clearcoat: 0.12,
+    base: '#616b74', baseAlt: '#4e5760', panel: '#98a1a9', panelAlt: '#bfc6cc',
+    primer: '#6a6c60', metal: '#949ba3', metalBright: '#c9cfd5',
+    accent: '#e0812f', grime: '#353b40', soot: '#131416', streak: '#454b51',
+    markLight: '#d6dce2', markDark: '#14181d', emissive: '#ffcf9a',
+    roughBase: 0.5, roughSpread: 1.2, clearcoat: 0.12,
     panelScale: 2.6, macroCells: 3, seamDepth: 1.6, weld: 1, ribs: 1,
-    barePlate: 0.07, primerPlate: 0.08, lightPlate: 0.14,
+    barePlate: 0.07, primerPlate: 0.05, lightPlate: 0.26, altPlate: 0.10,
     oxidise: 0.45, organic: 0,
   },
   civilian: {
-    base: '#9aa0a2', baseAlt: '#8b9193', panel: '#b8b3a4', panelAlt: '#cfc7b4',
-    primer: '#7a4a34', metal: '#9aa1a6', metalBright: '#cfd4d8',
-    accent: '#c94f2c', grime: '#2c2b27', soot: '#15130f', streak: '#3d3b35',
-    markLight: '#e6e2d8', markDark: '#22201c', emissive: '#ffd9a0',
-    roughBase: 0.48, roughSpread: 0.95, clearcoat: 0.3,
+    base: '#9aa0a2', baseAlt: '#7f8587', panel: '#b8b3a4', panelAlt: '#d6cfbc',
+    primer: '#8a5a40', metal: '#a3aaaf', metalBright: '#d8dde1',
+    accent: '#d4562e', grime: '#3b3a34', soot: '#1a1813', streak: '#4a4841',
+    markLight: '#efebe1', markDark: '#22201c', emissive: '#ffd9a0',
+    roughBase: 0.48, roughSpread: 1.05, clearcoat: 0.3,
     panelScale: 1.5, macroCells: 4, seamDepth: 0.95, weld: 0.25, ribs: 0.15,
-    barePlate: 0.05, primerPlate: 0.1, lightPlate: 0.2,
+    barePlate: 0.05, primerPlate: 0.1, lightPlate: 0.24, altPlate: 0.12,
     oxidise: 0.8, organic: 0,
   },
 };
@@ -750,9 +772,15 @@ function buildHullSet(engine, {
   const maxLeaves = layout.maxLeaves;
   const nSections = layout.macroCount;
   const bare = sd.barePlate, prim = sd.primerPlate, lite = sd.lightPlate;
+  const alt = sd.altPlate ?? 0.045;
 
   const mTone = new Float32Array(256);
   const mStep = new Float32Array(256);
+  // Whole-section surface finish. Paint shops spray a section at a time, so the
+  // sheen shifts across a wing root or a nose cone as one unit — the largest of
+  // the seven roughness bands and the one that stops the hull reading as a single
+  // machined surface.
+  const mRough = new Float32Array(256);
   // Some structural sections are predominantly light — a white nose cone, a
   // pale control surface. Scattering light plates uniformly instead produces a
   // quilt, which is the fastest way to make a hull look procedurally generated.
@@ -761,17 +789,25 @@ function buildHullSet(engine, {
   for (let i = 0; i < 256; i++) {
     mTone[i] = (cellValue(i, iseed + 271) - 0.5) * 2;
     mStep[i] = (cellValue(i, iseed + 311) - 0.5) * 0.010;
+    mRough[i] = (cellValue(i, iseed + 419) - 0.5) * 2;
     const q = cellValue(i, iseed + 353);
     mLight[i] = q > 0.78 ? 0.45 : q > 0.6 ? 0.12 : -0.1;
   }
 
   for (let i = 0; i < PC; i++) {
     const sec = ((i / maxLeaves) | 0) % nSections;
-    const c = pRand[i] - mLight[sec] * 0.55;
+    const L = mLight[sec];
+    const c = pRand[i];
+    // The light half of the scheme clusters into whole structural sections — a pale
+    // nose cone, a white control surface — instead of being sprinkled per plate,
+    // which quilts. Bare/primer rates stay section-independent: an unpainted plate
+    // is a maintenance accident, not a design choice.
+    const liteS = clamp(lite * (1 + L * 2.2), 0, 0.82);
+    const altS = clamp(alt * (1 + L * 2.6), 0, 0.42);
     if (c < bare) pKind[i] = 3;
     else if (c < bare + prim) pKind[i] = 2;
-    else if (c < bare + prim + lite * (1 + mLight[sec] * 2.6)) pKind[i] = 1;
-    else if (c > 0.955 - mLight[sec] * 0.35) pKind[i] = 4;
+    else if (c < bare + prim + liteS) pKind[i] = 1;
+    else if (c > 1 - altS) pKind[i] = 4;
   }
 
   const hiTiles = Math.max(1, size / HI) | 0;
@@ -855,7 +891,7 @@ function buildHullSet(engine, {
   let aoSrc = height;
   let aoSize = size;
   while (aoSize > 512) { aoSrc = downsample2(aoSrc, aoSize); aoSize >>= 1; }
-  const aoLow = heightToAO(aoSrc, aoSize, { radius: 6, strength: 1.15 });
+  const aoLow = heightToAO(aoSrc, aoSize, { radius: 6, strength: 1.55 });
   timings.derived = mark() - t;
 
   // -------------------------------------------------------------- markings ----
@@ -886,7 +922,7 @@ function buildHullSet(engine, {
   composePass({
     size, S, low, hi, hiTiles, hiShift, hiMask, tileMask, hoffX, hoffY, hflip,
     panel, macro, seam, seamAmp, rivet, edgePx, special, hAdd, cavity, cavScale,
-    mark4, aoLow, aoSize, pKind, pTone, pRough, mTone, albedo, orm,
+    mark4, aoLow, aoSize, pKind, pTone, pRough, mTone, mRough, albedo, orm,
     cBase, cBaseAlt, cPanel, cPanelAlt, cPrimer, cMetal, cMetalBright,
     cGrime, cSoot, cStreak, cAccent,
     roughBase, rs, wearK, oxidise: sd.oxidise,
@@ -895,7 +931,13 @@ function buildHullSet(engine, {
 
   // ---------------------------------------------------------------- normals ---
   t = mark();
-  const normal = heightToNormal(height, size, 4.6 * Math.max(0.3, S));
+  // `heightToNormal` runs a per-texel Sobel, so the tilt it produces is set by the
+  // height *slope*, not its depth. A 0.030-deep seam spread over eight texels is a
+  // 0.015/texel gradient — at strength 4.6 that is an 8° chamfer, which vanishes
+  // the moment the hull is more than a few metres away and leaves the plating
+  // reading as painted-on camouflage rather than as panels. Real panel-line
+  // chamfers and rivet crowns want 25–40°.
+  const normal = heightToNormal(height, size, 8.5 * Math.max(0.3, S));
   timings.normal = mark() - t;
 
   // --------------------------------------------------------------- emissive ---
@@ -987,7 +1029,7 @@ function composePass(P) {
   const {
     size, S, low, hi, hiTiles, hiShift, hiMask, tileMask, hoffX, hoffY, hflip,
     panel, macro, seam, seamAmp, rivet, edgePx, special, hAdd, cavity, cavScale,
-    mark4, aoLow, aoSize, pKind, pTone, pRough, mTone, albedo, orm,
+    mark4, aoLow, aoSize, pKind, pTone, pRough, mTone, mRough, albedo, orm,
     cBase, cBaseAlt, cPanel, cPanelAlt, cPrimer, cMetal, cMetalBright,
     cGrime, cSoot, cStreak, cAccent, roughBase, rs, wearK, oxidise,
   } = P;
@@ -1112,16 +1154,20 @@ function composePass(P) {
       }
 
       // ---- seams, grime, streaks ------------------------------------------
+      // Grime tints and mattes the paint; it does not black it out. Pulling a light
+      // grey airframe 62 % of the way to a near-black dirt colour is what turned
+      // this hull into a silhouette — real soiling on grey paint reads as a warmer,
+      // duller grey, and the roughness lift below does most of the work anyway.
       const seamDirt = sm * (0.55 + 0.45 * grime0);
       const grimeAmt = clamp(grime0 * 0.95 + seamDirt * 0.5 + speck * 0.06)
         * (0.25 + 0.85 * wearK);
-      const gk = grimeAmt * 0.62;
+      const gk = grimeAmt * 0.42;
       r += (cGrime[0] - r) * gk;
       g += (cGrime[1] - g) * gk;
       b += (cGrime[2] - b) * gk;
 
       const streakAmt = clamp(streak * (0.65 + 0.85 * fine) - 0.04) * (0.35 + 0.85 * wearK);
-      const sk2 = streakAmt * 0.62;
+      const sk2 = streakAmt * 0.44;
       r += (cStreak[0] - r) * sk2;
       g += (cStreak[1] - g) * sk2;
       b += (cStreak[2] - b) * sk2;
@@ -1145,8 +1191,10 @@ function composePass(P) {
       // Rivet crowns catch light, their recesses hold dirt.
       const rk = riv * 0.10;
       r *= 1 + rk; g *= 1 + rk; b *= 1 + rk;
-      // Seam line itself is a dark scribe.
-      const sdark = 1 - sm * 0.26 * (0.55 + 0.45 * (seamAmp[i] / 255));
+      // Seam line itself is a dark scribe. This is the cue that survives distance
+      // and mip filtering after the normal map has averaged itself flat, so it has
+      // to carry real contrast — it is what keeps plating reading as plating.
+      const sdark = 1 - sm * 0.38 * (0.55 + 0.45 * (seamAmp[i] / 255));
       r *= sdark; g *= sdark; b *= sdark;
 
       const ao4 = i * 4;
@@ -1156,25 +1204,34 @@ function composePass(P) {
       albedo[ao4 + 3] = 255;
 
       // ---- roughness: structure at every scale ------------------------------
+      // Eight decorrelated bands, spanning three decades of scale: section →
+      // plate → macro mottle → orange peel → texel. Every one of them is doing
+      // real work; drop any and the hull starts to read as one machined surface.
       let rough = roughBase;
-      rough += pRough[p] * 0.055 * rs;              // per-plate paint batch
-      rough += (mottle - 0.5) * 0.10 * rs;          // broad sheen variation
-      rough += (fine - 0.5) * 0.085 * rs;           // orange peel
-      rough += (micro - 0.5) * 0.055 * rs;          // texel-scale breakup
-      rough += (speck - 0.5) * 0.03;
+      rough += mRough[macro[i]] * 0.085 * rs;       // whole-section spray finish
+      rough += pRough[p] * 0.105 * rs;              // per-plate paint batch
+      rough += (mottle - 0.5) * 0.155 * rs;         // broad sheen variation
+      rough += (fine - 0.5) * 0.115 * rs;           // orange peel
+      rough += (micro - 0.5) * 0.070 * rs;          // texel-scale breakup
+      rough += (speck - 0.5) * 0.035;
       rough += seamDirt * 0.14;                     // dirt packed into seams
-      rough += grimeAmt * 0.20;
-      rough += streakAmt * 0.16;
+      rough += grimeAmt * 0.26;                     // soiling mattes the topcoat
+      rough += streakAmt * 0.20;
       rough += sootAmt * 0.42;
       rough -= wearM * 0.16;                        // rubbed-bare metal is smoother
       rough -= scr * 0.30;                          // a fresh scratch is bright
       rough += clamp(oxide * 1.2 - 0.3) * oxidise * 0.18;
       if (kind === 3) rough -= 0.09;
       if (kind === 2) rough += 0.16;                // primer is dead matte
+      // Topcoated plating holds more gloss than the weathered camo grey around it,
+      // so the light half of the scheme also reads as a different *finish*, not
+      // just a different colour.
+      if (kind === 1) rough -= 0.055;
+      if (kind === 4) rough -= 0.085;
       if (sp === SPECIAL_NOZZLE) rough += 0.18;
       if (sp === SPECIAL_GRILLE) rough += 0.22;
       if (sp === SPECIAL_LIGHT) rough -= 0.28;
-      rough = rough < 0.05 ? 0.05 : rough > 0.99 ? 0.99 : rough;
+      rough = rough < 0.10 ? 0.10 : rough > 0.97 ? 0.97 : rough;
 
       // ---- metalness --------------------------------------------------------
       let met = kind === 3 ? 0.92 : 0.04;
@@ -1195,8 +1252,8 @@ function composePass(P) {
       const a01 = aoLow[ayb * aoSize + axa], a11 = aoLow[ayb * aoSize + axb];
       let ao = a00 + (a10 - a00) * atx + (a01 - a00) * aty + (a00 - a10 - a01 + a11) * atx * aty;
       // Crisp contact darkening that a quarter-res AO pass cannot resolve.
-      ao *= 1 - sm * 0.5 * (0.4 + 0.6 * (seamAmp[i] / 255));
-      ao *= 1 - clamp(-conv * 0.45);
+      ao *= 1 - sm * 0.74 * (0.4 + 0.6 * (seamAmp[i] / 255));
+      ao *= 1 - clamp(-conv * 0.62);
       if (sp === SPECIAL_GRILLE) ao *= 0.55;
       if (sp === SPECIAL_NOZZLE) ao *= 0.7;
       ao = ao < 0 ? 0 : ao > 1 ? 1 : ao;

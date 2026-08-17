@@ -155,7 +155,12 @@ export function createPrimaryStar(engine) {
       light.intensity = s.intensity;
       api.intensity = s.intensity;
       rimLight.color.setRGB(s.rim[0], s.rim[1], s.rim[2]);
-      rimLight.intensity = s.intensity * 0.13;
+      // Bible §7 wants the back light at 8–15 % of key. That ratio is of *radiance*,
+      // so the rim colour counts: an intensity factor alone, multiplied by a rim
+      // triple peaking at 0.6, quietly delivered 8 % in one channel and 2 % in the
+      // others. Normalise the colour out of it and set the ratio directly.
+      const rimPeak = Math.max(0.2, s.rim[0], s.rim[1], s.rim[2]);
+      rimLight.intensity = (s.intensity * 0.15) / rimPeak;
 
       // Key from the star; rim from roughly behind-opposite so silhouettes
       // separate from the dark side of the sky (art bible §7).
