@@ -47,11 +47,18 @@ import * as THREE from 'three';
  *   `envIntensity`    the *only* fill in the game — there is no hemisphere light by
  *                     design. Multiplied by each material's own `envMapIntensity`
  *                     (hulls: 2.1), so the numbers below are half of the real figure.
- *                     Measured, the nebula PMREM delivers ~0.02 irradiance per unit
- *                     of that product, against ~0.27 per unit of key intensity — so
- *                     the combined ~5 here is what puts the shadow side at 10–13 % of
- *                     the lit side. Below that the unlit hemisphere crushes to black
- *                     and loses the nebula colour that is half the look.
+ *                     They are **not** free-hand: each was solved so that the PMREM's
+ *                     measured irradiance lands at 12 % of that preset's key radiance,
+ *                     which is where the shadow side reads as coloured nebula light
+ *                     instead of crushing to black. The nebulae are not equally bright
+ *                     — at a flat 2.0 across the board, deep-blue delivered 8.6 % (the
+ *                     carrier's ventral hull went to rgb 9,11,40) while vista delivered
+ *                     14.5 % — so a shared constant is exactly the wrong shape for this
+ *                     number. Measured PMREM irradiance per unit of the product, from
+ *                     an albedo-1 lambert probe averaged over six axis normals:
+ *                       teal 0.0192  magenta 0.0192  ember 0.0224
+ *                       deep-blue 0.0159  vista 0.0231
+ *                     Re-solve against those if a `sky` block is ever retuned.
  *   `star.rim`        scaled by PrimaryStar to ~13 % of key *radiance* (bible §7).
  *                     The triples below are near-unit so that ratio actually lands; a
  *                     rim colour of 0.2 silently makes it 3 %.
@@ -99,7 +106,7 @@ export const PRESETS = {
       rim: [0.36, 0.80, 0.94],
       angular: 0.0105,
     },
-    envIntensity: 2.45,
+    envIntensity: 2.50,   // -> 12.0 % fill:key
   },
 
   // ------------------------------------------------- magenta / hydrogen-alpha
@@ -136,7 +143,7 @@ export const PRESETS = {
       rim: [0.86, 0.34, 0.78],
       angular: 0.0090,
     },
-    envIntensity: 2.35,
+    envIntensity: 2.70,   // -> 12.0 % fill:key
   },
 
   // ---------------------------------------------------- ember / red-giant sky
@@ -173,7 +180,7 @@ export const PRESETS = {
       rim: [0.94, 0.44, 0.22],
       angular: 0.0180,
     },
-    envIntensity: 2.60,
+    envIntensity: 2.20,   // -> 11.9 % fill:key
   },
 
   // ------------------------------------------------------- cold deep-blue rift
@@ -210,7 +217,7 @@ export const PRESETS = {
       rim: [0.30, 0.52, 0.98],
       angular: 0.0085,
     },
-    envIntensity: 2.30,
+    envIntensity: 3.20,   // -> 12.0 % fill:key
   },
 
   // ------------------------------------ the showcase: magenta core, teal rims
@@ -246,7 +253,7 @@ export const PRESETS = {
       rim: [0.74, 0.46, 0.80],
       angular: 0.0140,
     },
-    envIntensity: 2.50,
+    envIntensity: 2.05,   // -> 11.9 % fill:key
   },
 };
 
