@@ -111,19 +111,37 @@ void main() {
 
   // High-frequency detail. "fil" is a ridged multifractal: its creases become
   // both the wisps in the gas and the fingers eaten out of the dust edge.
-  float det = wcFbm(p * 2.7 + 71.0, 4);
-  float fil = wcRidged(p * 4.7 + det * 0.45, 4, 1.35);
+  // Detail frequency is deliberately low. Real nebulae are dominated by huge soft
+  // masses with filament structure riding on top; running the ridged multifractal
+  // at high frequency and full modulation depth turns the whole sky into uniform
+  // lacework that reads as lichen and competes with the ships for attention.
+  float det = wcFbm(p * 1.35 + 71.0, 4);
+  float fil = wcRidged(p * 2.15 + det * 0.45, 4, 1.35);
   float dn = det * 0.5 + 0.5;
 
-  float g = clamp(gas * (0.38 + 1.00 * fil) + 0.22 * gas * dn, 0.0, 1.9);
+  // Coverage is the thing that decides whether a sky reads as a nebula or as a
+  // noise texture. Gas that fills every direction leaves the eye nowhere to rest
+  // and nothing for a ship silhouette to read against, so the field is thresholded
+  // to carve out genuinely empty sky and concentrate the gas into fewer, denser
+  // masses. Everything below the low edge becomes clean dark space.
+  gas = smoothstep(0.34, 0.92, gas);
 
-  float du = dust * 1.32 - 0.44 * fil - 0.20 * dn + 0.11;
-  du = smoothstep(0.10, 0.42, clamp(du, 0.0, 1.0));
+  // Large-scale gas carries the image (0.72); filaments modulate it (0.48) rather
+  // than defining it.
+  float g = clamp(gas * (0.72 + 0.48 * fil) + 0.16 * gas * dn, 0.0, 1.9);
+
+  float du = dust * 1.05 - 0.20 * fil - 0.10 * dn + 0.06;
+  // A narrow threshold turns the dust field into hard-edged blobs scattered over
+  // the whole sky. Real absorption is a soft gradient with a few dense cores, so
+  // the ramp is wide and the field is biased down to keep coverage sparse.
+  du = smoothstep(0.02, 0.72, clamp(du, 0.0, 1.0));
 
   // ---- three colour bands mixing across the sky ----------------------------
   vec3 emis = mix(uGasCool, uGasMid, smoothstep(0.03, 0.40, g));
   emis = mix(emis, uGasHot, smoothstep(0.36, 1.05, g) * (0.28 + 0.72 * hue));
-  emis *= pow(g, 1.30);
+  // Gentler than 1.30: a steep gamma crushes the mid-tones and leaves only bright
+  // cores and black, which is what makes procedural gas look like a noise field.
+  emis *= pow(g, 1.05);
 
   // Ionisation front — gas glows hardest where the dust wall shadows it.
   float rim = du * (1.0 - du) * 4.0;
