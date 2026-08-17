@@ -8,7 +8,7 @@ import { SHOT_SCENES } from './ShotScenes.js';
  * runs with `engine.renderEnabled = false`: 20 simulated seconds of dogfight costs
  * 1200 cheap physics steps and exactly one rendered frame.
  */
-export async function setupShot(game, { id, seconds = 5, seed = 1337 }) {
+export async function setupShot(game, { id, seconds = 5, seed = 1337, onBeforeShot = null }) {
   const engine = game.engine;
   engine.deterministic = true;
   engine.fixedDt = 1 / 60;
@@ -43,6 +43,9 @@ export async function setupShot(game, { id, seconds = 5, seed = 1337 }) {
   // through motion blur; reframing first lets TAA history and motion vectors
   // settle against a static camera.
   await scene.beforeShot?.(ctx);
+  // Diagnostic overrides run after the scene composes itself but before anything
+  // is rasterized, so a material swap actually lands in the captured frame.
+  await onBeforeShot?.(ctx);
   engine.post?.resetHistory?.();
 
   engine.renderEnabled = true;

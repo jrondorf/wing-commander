@@ -235,7 +235,10 @@ function defaultSettings() {
 
     streaks: {
       enabled: true,
-      intensity: 0.17,
+      // At 0.17 a single blown-out hull threw a hard horizontal band right across
+      // the frame. Anamorphic streaks should be a hint of lens character, not a
+      // structural element of the image.
+      intensity: 0.10,
       threshold: 2.0,
       taps: 9,
       iterations: 4,
@@ -268,7 +271,11 @@ function defaultSettings() {
 
     chromatic: { enabled: true, amount: 0.0024, centerBias: 0.12 },
 
-    tonemap: { mode: 'hill', exposure: 1.0, whitePoint: 4 },
+    // Exposure was calibrated against the hero-fighter capture: at 1.0 a hull with
+    // correctly-authored albedo (~0.17 linear) sat so far down the ACES curve that
+    // ships read as black silhouettes against the nebula. 3.2 puts the hull in the
+    // middle of the curve while leaving the star and engine cores headroom to bloom.
+    tonemap: { mode: 'hill', exposure: 3.2, whitePoint: 4 },
 
     grade: {
       lift: [0, 0, 0],
@@ -281,7 +288,9 @@ function defaultSettings() {
       tint: [1, 1, 1],
     },
 
-    grain: { enabled: true, intensity: 0.026, shadowBias: 0.75, size: 1.4, speed: 1 },
+    // Grain is shadow-weighted, so in a frame that is mostly dark space the old
+    // 0.026 read as visible noise over the whole image rather than film texture.
+    grain: { enabled: true, intensity: 0.010, shadowBias: 0.75, size: 1.4, speed: 1 },
 
     vignette: { enabled: true, intensity: 0.4, smoothness: 0.6, roundness: 0.55 },
 
