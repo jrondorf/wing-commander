@@ -21,6 +21,17 @@
  * albedo therefore has to average 0.15–0.30 linear (which is also where real
  * aircraft paint sits), and `adaptPalette` below exists to keep ship liveries from
  * quietly collapsing it back down.
+ *
+ * The third: **`envMapIntensity` is the shadow side.** There is no hemisphere light
+ * in this game by design (bible §7) — the nebula PMREM is the only thing lighting a
+ * surface the star cannot see. Measured against the shipped nebulae it delivers about
+ * 0.02 irradiance per unit of `scene.environmentIntensity * material.envMapIntensity`,
+ * against about 0.27 per unit of key intensity, so the two numbers have to multiply
+ * out to ~5 before the unlit hemisphere carries any nebula colour at all. Below that
+ * the hull is a lit half and a black half, which reads as a cutout, not a solid. The
+ * world presets hold ~2.4 of that product; the ~2.1 here is the other half.
+ * `envMapIntensity` is a light-response dial, not a look dial: change it only in
+ * concert with `world/Presets.js`, never to brighten one material on its own.
  */
 
 import * as THREE from 'three';
@@ -162,7 +173,7 @@ export function createHullMaterial(engine, opts = {}) {
     size = kindOf === 'accent' ? 512 : kindOf === 'metal' ? 1024 : 2048,
     palette = null, wear = 0.5,
     panelScale = 1, insignia = null, ports = null, kind = 'hull',
-    emissiveIntensity = 4.0, envMapIntensity = 1.45, normalScale = 1.15,
+    emissiveIntensity = 4.0, envMapIntensity = 2.1, normalScale = 1.15,
     clearcoat = null, side = THREE.FrontSide, name = '',
   } = opts;
 
@@ -289,7 +300,10 @@ export function createGlassMaterial(engine, {
       iridescence: 0.35,
       iridescenceIOR: 1.34,
       iridescenceThicknessRange: [240, 560],
-      envMapIntensity: 2.4,
+      // Held at the *product* it had before the fill rebalance: glass is a mirror, so
+      // it is the one surface where the raised scene environment intensity would show
+      // up as a brighter object rather than as a readable shadow side.
+      envMapIntensity: 1.9,
       side: THREE.DoubleSide,
       premultipliedAlpha: false,
     });
@@ -306,7 +320,10 @@ export function createChitinMaterial(engine, {
   seed = 1, size = 2048, style = 'alien', palette = null, wear = 0.45,
   panelScale = 1.4, iridescence = 0.65, anisotropy = 0.45,
   anisotropyRotation = 0.6, sheen = 0.55, sheenColor = 0x9fd06a,
-  envMapIntensity = 1.15, name = '',
+  // Chitin is a hull, so it gets the hull's fill budget. At the old 1.15 an alien
+  // craft's shadow side went to pure black — the darkest albedo in the game with the
+  // least environment fill behind it — and a Nephilim fighter read as a hole.
+  envMapIntensity = 1.9, name = '',
 } = {}) {
   const key = keyOf('mat/chitin', {
     seed, size, style, palette, wear, panelScale, iridescence, anisotropy,
@@ -373,7 +390,9 @@ export function createStructuralMaterial(engine, {
       roughness: 1,
       metalness: 1,
       clearcoat: 0,
-      envMapIntensity: 1.2,
+      // Bare alloy is mostly metal, so the environment *is* its diffuse — a touch
+      // above the hull's share rather than below it.
+      envMapIntensity: 2.3,
     });
     mat.aoMap.channel = 0;
     mat.userData.textureSet = set;

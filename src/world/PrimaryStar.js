@@ -123,10 +123,54 @@ export function createPrimaryStar(engine) {
   rimLight.name = 'rim';
 
   const direction = new THREE.Vector3(0, 0, -1);
+  // Camera basis + result for the rim kicker, reused every frame — see aimRim().
+  const _rimFwd = new THREE.Vector3();
+  const _rimSide = new THREE.Vector3();
+  const _rimUp = new THREE.Vector3();
+  const _rimDir = new THREE.Vector3();
   const worldPosition = new THREE.Vector3();
   const screenPosition = new THREE.Vector3(0.5, 0.5, -1);
   const screenNDC = new THREE.Vector3();
   const colorLinear = new THREE.Color(1, 1, 1);
+
+  /**
+   * Aim the rim light.
+   *
+   * A rim exists to draw a bright line along the edge where the hull meets the
+   * background, and "the edge" is a property of *where the viewer is*, not of where
+   * the star is. A world-fixed back light therefore only rims correctly from one
+   * camera position and reads as a weak second key from every other — which is what
+   * the previous fixed `-direction + (0.55, 0.42)` did: measured against the hero
+   * framing it sat 74° off the view axis, on the camera's own side of the subject,
+   * lighting surfaces the key was already lighting instead of grazing the silhouette.
+   *
+   * So it is rebuilt from the camera basis each frame: pushed to the far side of the
+   * subject (~140° off the view axis, the classic kicker angle — far enough back that
+   * broad surfaces get nothing and only the turning edge catches it, near enough that
+   * Lambert still delivers ~0.67 of full irradiance right at the silhouette), lifted,
+   * and thrown to whichever side the key is *not* on so the two never merge.
+   *
+   * It stays a rim, not a light source: intensity is pinned to 15 % of key in
+   * applyPreset and never touched here.
+   */
+  function aimRim(camera) {
+    if (camera) _rimFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    else if (_rimFwd.lengthSq() < 1e-6) _rimFwd.copy(direction).negate();
+
+    _rimSide.crossVectors(_rimFwd, WORLD_UP);
+    // Straight up or straight down the world axis leaves no side vector; any
+    // perpendicular will do at that point.
+    if (_rimSide.lengthSq() < 1e-8) _rimSide.set(1, 0, 0);
+    _rimSide.normalize();
+    _rimUp.crossVectors(_rimSide, _rimFwd).normalize();
+
+    const awayFromKey = _rimSide.dot(direction) >= 0 ? -1 : 1;
+    _rimDir.copy(_rimFwd).multiplyScalar(0.78)
+      .addScaledVector(_rimUp, 0.42)
+      .addScaledVector(_rimSide, 0.46 * awayFromKey)
+      .normalize();
+    rimLight.position.copy(_rimDir).multiplyScalar(1e5);
+  }
 
   const api = {
     object3D: mesh,
@@ -162,15 +206,11 @@ export function createPrimaryStar(engine) {
       const rimPeak = Math.max(0.2, s.rim[0], s.rim[1], s.rim[2]);
       rimLight.intensity = (s.intensity * 0.15) / rimPeak;
 
-      // Key from the star; rim from roughly behind-opposite so silhouettes
-      // separate from the dark side of the sky (art bible §7).
+      // Key from the star. The rim's *direction* is not set here — see update().
       light.position.copy(direction).multiplyScalar(1e5);
       light.target.position.set(0, 0, 0);
-      const rimDir = direction.clone().negate();
-      rimDir.x += 0.55; rimDir.y += 0.42;
-      rimDir.normalize();
-      rimLight.position.copy(rimDir).multiplyScalar(1e5);
       rimLight.target.position.set(0, 0, 0);
+      aimRim();
 
       api.angularRadius = s.angular;
       const coronaScale = 7.5;
@@ -191,6 +231,7 @@ export function createPrimaryStar(engine) {
 
     update(dt, camera, skyOrigin) {
       material.uniforms.uTime.value += dt;
+      aimRim(camera);
       worldPosition.copy(skyOrigin).addScaledVector(direction, STAR_DISTANCE);
 
       screenNDC.copy(worldPosition).project(camera);
@@ -212,3 +253,4 @@ export function createPrimaryStar(engine) {
 }
 
 const _fwd = new THREE.Vector3();
+const WORLD_UP = /* @__PURE__ */ new THREE.Vector3(0, 1, 0);
