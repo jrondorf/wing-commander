@@ -227,6 +227,9 @@ export const SHOT_SCENES = {
       ctx.victim = victim;
       if (victim) anchor(victim);
       spawnWing(game, 'confed_vampire', 'confed', V(-140, 30, 260), 2, 70);
+      // Without this the AI pilots fly the victim hundreds of metres downrange
+      // during the 8.4 s warm-up and the blast happens outside the framing.
+      freezeSim(game);
       // Frame the victim now — once it detonates its group may be gone, so the
       // camera has to be composed on the blast site before the kill.
       frameSubject(engine, victim?.group ?? engine.scene, { azimuth: 0.6, elevation: 0.22, fill: 0.28, fov: 42 });
@@ -296,6 +299,7 @@ export const SHOT_SCENES = {
       const p = game.spawnShip('confed_vampire', { faction: 'confed', position: V(0, 0, 0), isPlayer: true, seed: 3 });
       if (p?.body) p.body.controls.throttle = 0.7;
       ctx.target = game.spawnShip('alien_manta', { faction: 'nephilim', position: V(60, 20, -1400), seed: 8 });
+      if (ctx.target) anchor(ctx.target);
       frame(engine, V(-30, 14, 46), V(10, 2, -260), { fov: 40 });
     },
     tick(ctx, t) {
