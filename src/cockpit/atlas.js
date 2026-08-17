@@ -19,7 +19,7 @@
 import * as THREE from 'three';
 import { makeRng } from '../core/Rand.js';
 import { heightToNormal } from '../procgen/noise.js';
-import { PANEL, MFD, RADAR, STACK } from './layout.js';
+import { PANEL, MFD, RADAR, STACK, SWITCHES, KNOBS } from './layout.js';
 import {
   makeSurface, canvasLuma, rgbaCss, radialRamp, gradientRamp,
   seededSplatter, brushedStreaks, scratchLines, hazardStripes, roundRectPath,
@@ -47,8 +47,12 @@ export const REGIONS = {
   trim: [1280, 512, 768, 384],
   /** Switch bodies, knobs, stick grip, throttle grip. */
   detail: [1280, 896, 768, 512],
-  /** Warning placards and data plates. */
-  plate: [1280, 1408, 768, 640],
+  /**
+   * The MFD bezel face — square, because both bezels planar-map their whole
+   * front face into it. This is where the soft-key legends live: painting them
+   * on the panel behind would put them underneath the bezel geometry.
+   */
+  plate: [1280, 1408, 640, 640],
 };
 
 /** UV rect (u0,v0,u1,v1) for a region, with the canvas y-flip already applied. */
@@ -353,6 +357,10 @@ function paintMainPanel(L, rng) {
   subPanel(L, x + 10, y + 10, w - 20, h - 20, { r: 10, rise: 0.1 });
   scribe(L, x + 18, PY(PANEL.h / 2 - 0.018), x + w - 18, PY(PANEL.h / 2 - 0.018), { width: 4, depth: 0.5 });
   scribe(L, x + 18, PY(-PANEL.h / 2 + 0.016), x + w - 18, PY(-PANEL.h / 2 + 0.016), { width: 4, depth: 0.5 });
+  // Vertical joints splitting the panel into bolted sections.
+  for (const jx of [-0.62, -0.20, 0.20, 0.62]) {
+    scribe(L, PX(jx), y + 16, PX(jx), y + h - 16, { width: 3, depth: 0.38 });
+  }
 
   // ---- MFD wells ------------------------------------------------------------
   // A deep, bevelled recess; the bezel and the screen are real geometry on top,
@@ -375,15 +383,7 @@ function paintMainPanel(L, rng) {
     L.alb.restore();
     orm(L, rx, ry, rw, rh, { rough: 0.2, metal: 0.02, ao: 0.4 });
     screws(L, rx - bz, ry - bz, rw + bz * 2, rh + bz * 2, rng, { inset: 9, radius: 4.4, every: 110 });
-    // Soft-key legends down both sides of the display, as on a real MFD.
-    for (let i = 0; i < 4; i++) {
-      const ly = ry + rh * (0.18 + i * 0.215);
-      legend(L.alb, MFD_KEYS[i], rx - bz * 0.55, ly, { size: 10, align: 'center', color: C.legendDim, track: 0.06 });
-      legend(L.alb, MFD_KEYS[i + 4], rx + rw + bz * 0.55, ly, { size: 10, align: 'center', color: C.legendDim, track: 0.06 });
-    }
   }
-  litLegend(L, 'TARGET VDU', PX(MFD.leftX), PY(MFD.y + halfM + 0.030), { size: 18, align: 'center', glow: C.cyan, track: 0.18 });
-  litLegend(L, 'DAMAGE VDU', PX(MFD.rightX), PY(MFD.y + halfM + 0.030), { size: 18, align: 'center', glow: C.cyan, track: 0.18 });
 
   // ---- centre stack ---------------------------------------------------------
   const stackX0 = PX(-STACK.halfWidth), stackW = STACK.halfWidth * 2 * sx;
@@ -397,45 +397,72 @@ function paintMainPanel(L, rng) {
   L.hgt.beginPath(); L.hgt.arc(rcx, rcy, rr * 1.22, 0, Math.PI * 2); L.hgt.fill();
   L.hgt.restore();
   L.alb.save();
-  L.alb.fillStyle = '#070a0c';
+  L.alb.fillStyle = '#05080a';
   L.alb.beginPath(); L.alb.arc(rcx, rcy, rr, 0, Math.PI * 2); L.alb.fill();
   L.alb.restore();
-  litLegend(L, 'TACTICAL RADAR', rcx, rcy - rr * 1.34, { size: 15, align: 'center', color: C.legend, glow: C.cyan, track: 0.16 });
+  orm(L, rcx - rr, rcy - rr, rr * 2, rr * 2, { rough: 0.30, metal: 0.02, ao: 0.35 });
 
-  // Annunciator lamps under the radar.
-  const lampY = rcy + rr * 1.5;
-  const lampNames = ['SHLD', 'ARMR', 'PWR', 'FUEL'];
-  const lampCols = [C.lamp_green, C.amber, C.lamp_green, C.lamp_green];
-  for (let i = 0; i < 4; i++) {
-    lamp(L, rcx + (i - 1.5) * rr * 0.5, lampY, 9, lampCols[i], { on: i !== 1, label: lampNames[i] });
+  // Annunciator lamps flank the globe: the strip either side of the radar bezel
+  // is the only real estate in the centre stack the glareshield does not eat.
+  const lampNames = [['MSTR', 'SHLD', 'PWR'], ['ARMR', 'FUEL', 'ITTS']];
+  const lampCols = [[C.amber, C.lamp_green, C.lamp_green], [C.red, C.lamp_green, C.cyan]];
+  for (let c = 0; c < 2; c++) {
+    for (let i = 0; i < 3; i++) {
+      const lx = PX((c === 0 ? -1 : 1) * 0.150);
+      const ly = PY(0.058 - i * 0.060);
+      lamp(L, lx, ly, 8.5, lampCols[c][i], { on: !(c === 1 && i === 0), label: lampNames[c][i] });
+    }
   }
 
   // ---- switch banks ---------------------------------------------------------
-  // Two columns of toggles between each MFD and the stack, plus a bottom row.
-  const colXs = [
-    PX((MFD.leftX + halfM + STACK.halfWidth * -1) / 2 - 0.012),
-    PX((MFD.rightX - halfM + STACK.halfWidth) / 2 + 0.012),
-  ];
+  // Two columns of toggles in the gaps between the stack and the MFD bezels.
   for (let c = 0; c < 2; c++) {
-    for (let i = 0; i < 4; i++) {
-      const px2 = colXs[c];
-      const py2 = PY(0.095 - i * 0.058);
-      switchPocket(L, px2, py2, SWITCH_LEGENDS[(c * 4 + i) % SWITCH_LEGENDS.length]);
+    for (let i = 0; i < SWITCHES.rows; i++) {
+      switchPocket(L,
+        PX((c === 0 ? -1 : 1) * SWITCHES.colX),
+        PY(SWITCHES.topY - i * SWITCHES.pitch),
+        SWITCH_LEGENDS[(c * SWITCHES.rows + i) % SWITCH_LEGENDS.length]);
     }
   }
-  const rowY = PY(-PANEL.h / 2 + 0.048);
-  for (let i = 0; i < 10; i++) {
-    const bx = PX(-0.50 + i * 0.111);
-    if (Math.abs(-0.50 + i * 0.111) < STACK.halfWidth * 0.7) continue;
-    switchPocket(L, bx, rowY, SWITCH_LEGENDS[(i + 5) % SWITCH_LEGENDS.length]);
+
+  // ---- rotaries and outboard strips -----------------------------------------
+  const knobLabels = [['CONTRAST', 'BRT'], ['GAIN', 'VOL']];
+  for (let c = 0; c < 2; c++) {
+    for (let i = 0; i < KNOBS.ys.length; i++) {
+      const kx = PX((c === 0 ? -1 : 1) * KNOBS.x);
+      const ky = PY(KNOBS.ys[i]);
+      L.hgt.save();
+      L.hgt.fillStyle = radialRamp(L.hgt, kx, ky, 0, KNOBS.r * sx * 1.35, [[0, '#000000', 0.5], [0.75, '#000000', 0.32], [1, '#ffffff', 0.18]]);
+      L.hgt.beginPath(); L.hgt.arc(kx, ky, KNOBS.r * sx * 1.35, 0, Math.PI * 2); L.hgt.fill();
+      L.hgt.restore();
+      L.alb.save();
+      L.alb.fillStyle = '#0e1214';
+      L.alb.beginPath(); L.alb.arc(kx, ky, KNOBS.r * sx * 1.2, 0, Math.PI * 2); L.alb.fill();
+      L.alb.restore();
+      // Detent ticks around the rotary.
+      L.alb.save();
+      L.alb.strokeStyle = rgbaCss(C.legendDim, 0.75);
+      L.alb.lineWidth = 2;
+      for (let t = 0; t <= 8; t++) {
+        const a = -Math.PI * 1.25 + (t / 8) * Math.PI * 1.5;
+        const r0 = KNOBS.r * sx * 1.45, r1 = r0 + 7;
+        L.alb.beginPath();
+        L.alb.moveTo(kx + Math.cos(a) * r0, ky + Math.sin(a) * r0);
+        L.alb.lineTo(kx + Math.cos(a) * r1, ky + Math.sin(a) * r1);
+        L.alb.stroke();
+      }
+      L.alb.restore();
+      legend(L.alb, knobLabels[c][i], kx, ky + KNOBS.r * sx * 2.1, { size: 12, align: 'center', color: C.legendDim, track: 0.12 });
+    }
   }
 
   // ---- placards and markings ------------------------------------------------
+  // Above the visibility band — decorative, and the reflection in the canopy is
+  // the only place a pilot ever really sees them.
   placard(L, PX(-0.585), PY(PANEL.h / 2 - 0.012), 0.19 * sx, 0.036 * sy, ['CAUTION', 'EJECT SEAT ARMED'], { accent: C.orange });
   placard(L, PX(0.395), PY(PANEL.h / 2 - 0.012), 0.19 * sx, 0.036 * sy, ['F-109A  BLK IV', 'TCS MIDWAY  VF-32'], { accent: C.legendDim, fill: '#191d20' });
+  litLegend(L, 'MASTER CAUTION', PX(0), PY(0.140), { size: 20, align: 'center', color: C.amber, glow: C.amber, track: 0.16 });
   hazardStripes(L.alb, { x: PX(-0.085), y: PY(-PANEL.h / 2 + 0.020), w: 0.17 * sx, h: 15, pitch: 15, angle: Math.PI / 4, colorA: C.orange, colorB: '#16191b', alpha: 0.85 });
-  legend(L.alb, 'CONTRAST', PX(-0.585), PY(-PANEL.h / 2 + 0.030), { size: 11, color: C.legendDim, track: 0.1 });
-  legend(L.alb, 'GAIN', PX(0.505), PY(-PANEL.h / 2 + 0.030), { size: 11, color: C.legendDim, track: 0.1 });
 
   // ---- wear where hands actually go -----------------------------------------
   grime(L, PX(-0.19), PY(0.10), 0.38 * sx, 0.22 * sy, rng, 1.4);
@@ -460,21 +487,50 @@ function switchPocket(L, x, y, label) {
 
 const SWITCH_LEGENDS = ['MSTR', 'GUN', 'MSL', 'SHLD', 'ECM', 'DCOY', 'NAV', 'AUTO', 'ITTS', 'IFF', 'LDG', 'EXT', 'PWR', 'RCS'];
 
+/**
+ * Glareshield.
+ *
+ * The loft in geometry.js maps the *deck* — the only face the pilot can see —
+ * into v ∈ [0, 0.70], i.e. the bottom 70 % of this region, with the near lip at
+ * the bottom edge. Everything worth painting therefore goes below `deckTop`.
+ */
 function paintCoaming(L, rng) {
   const [x, y, w, h] = REGIONS.coaming;
-  basePaint(L, REGIONS.coaming, rng, { color: C.paintDark, wear: 0.7, brushAngle: 0, rough: 0.82, metal: 0.02 });
-  // Anti-glare surface: matte, dark, and scuffed along its leading edge.
+  basePaint(L, REGIONS.coaming, rng, { color: C.paintDark, wear: 0.7, brushAngle: 0, rough: 0.86, metal: 0.02 });
+  const deckTop = y + h * 0.30;
+  const deckH = h * 0.70;
+
+  // Anti-glare surface: matte, dark, with the far edge falling into the hood's
+  // own shadow and the near lip catching the light.
   L.alb.save();
-  L.alb.fillStyle = gradientRamp(L.alb, x, y, x, y + h, [[0, '#000000', 0.35], [0.42, '#000000', 0.0], [1, '#000000', 0.4]]);
-  L.alb.fillRect(x, y, w, h);
+  L.alb.fillStyle = gradientRamp(L.alb, x, deckTop, x, y + h, [
+    [0, '#000000', 0.45], [0.55, '#000000', 0.12], [0.92, '#000000', 0.0], [1, '#aab3b8', 0.10],
+  ]);
+  L.alb.fillRect(x, deckTop, w, deckH);
   L.alb.restore();
-  for (let i = 0; i < 9; i++) {
-    const sx = x + w * (0.06 + i * 0.11);
-    scribe(L, sx, y + 6, sx, y + h - 6, { width: 3, depth: 0.3 });
+
+  // Chordwise stiffener scribes across the deck.
+  for (let i = 0; i < 13; i++) {
+    const sx = x + w * (0.04 + i * 0.0767);
+    scribe(L, sx, deckTop + 8, sx, y + h - 6, { width: 3, depth: 0.34 });
   }
-  screws(L, x + 8, y + 8, w - 16, h - 16, rng, { inset: 12, radius: 4, every: 128 });
-  legend(L.alb, 'DO NOT STEP', x + w * 0.5, y + h * 0.55, { size: 22, align: 'center', color: 'rgba(224,122,42,0.5)', track: 0.3 });
-  grime(L, x, y, w, h, rng, 1.2);
+  scribe(L, x, deckTop + deckH * 0.30, x + w, deckTop + deckH * 0.30, { width: 4, depth: 0.42 });
+  screws(L, x + 10, deckTop + 8, w - 20, deckH - 16, rng, { inset: 13, radius: 4, every: 118 });
+
+  // Markings, sized against the deck rather than the whole region.
+  legend(L.alb, 'DO NOT STEP', x + w * 0.30, deckTop + deckH * 0.52, {
+    size: 26, align: 'center', color: 'rgba(224,122,42,0.55)', track: 0.32,
+  });
+  legend(L.alb, 'DO NOT STEP', x + w * 0.70, deckTop + deckH * 0.52, {
+    size: 26, align: 'center', color: 'rgba(224,122,42,0.55)', track: 0.32,
+  });
+  placard(L, x + w * 0.44, deckTop + deckH * 0.18, w * 0.12, deckH * 0.24, ['VF-32', 'BLACK ACES'], { accent: C.legendDim, fill: '#15181a' });
+  hazardStripes(L.alb, { x: x + w * 0.02, y: y + h - 16, w: w * 0.14, h: 12, pitch: 13, angle: Math.PI / 4, colorA: C.orange, colorB: '#16191b', alpha: 0.55 });
+  hazardStripes(L.alb, { x: x + w * 0.84, y: y + h - 16, w: w * 0.14, h: 12, pitch: 13, angle: Math.PI / 4, colorA: C.orange, colorB: '#16191b', alpha: 0.55 });
+
+  // Scuff along the near lip, where a boot and a helmet actually land.
+  grime(L, x, y + h - 40, w, 40, rng, 1.8);
+  grime(L, x, deckTop, w, deckH, rng, 1.0);
 }
 
 function paintConsoles(L, rng) {
@@ -604,17 +660,72 @@ function paintDetail(L, rng) {
   L.alb.restore();
 }
 
+/**
+ * MFD bezel face.
+ *
+ * The bezel geometry planar-maps its entire square front face into this region,
+ * so pixel (u, v) here lands exactly on the corresponding point of the frame.
+ * The centre is the screen aperture — nothing painted there is ever seen — and
+ * the four margins carry the soft keys, which is the only place they can go:
+ * painted on the panel they would sit *behind* the bezel.
+ */
 function paintPlate(L, rng) {
   const [x, y, w, h] = REGIONS.plate;
-  basePaint(L, REGIONS.plate, rng, { color: '#1c2124', wear: 0.5, rough: 0.5, metal: 0.25 });
-  placard(L, x + 20, y + 18, w - 40, 96, ['WARNING', 'CANOPY JETTISON — PULL'], { accent: C.red, fill: '#1a1113' });
-  placard(L, x + 20, y + 132, w - 40, 84, ['CONFEDERATION NAVY', 'F-109A  S/N 44-1187'], { accent: C.legendDim });
-  placard(L, x + 20, y + 232, w - 40, 84, ['OXYGEN', 'CHECK BEFORE FLIGHT'], { accent: C.amber });
-  litLegend(L, 'MASTER CAUTION', x + w / 2, y + 372, { size: 26, align: 'center', color: C.amber, glow: C.amber, track: 0.16 });
-  litLegend(L, 'EJECT', x + w / 2, y + 452, { size: 34, align: 'center', color: C.red, glow: C.red, track: 0.24 });
-  legend(L.alb, 'HYD  ELEC  O2  ENG  GEN  RCS', x + w / 2, y + 520, { size: 18, align: 'center', color: C.legendDim, track: 0.2, font: FONT_MONO });
-  legend(L.alb, 'A B C D E F G H', x + w / 2, y + 570, { size: 18, align: 'center', color: C.legendDim, track: 0.3, font: FONT_MONO });
-  screws(L, x + 8, y + 8, w - 16, h - 16, rng, { inset: 12, radius: 4, every: 160 });
+  basePaint(L, REGIONS.plate, rng, { color: '#343c41', wear: 0.95, brushAngle: 0, rough: 0.34, metal: 0.72 });
+
+  // Anodised frame with a machined inner lip.
+  const inset = w * (MFD.bezel / (MFD.size + MFD.bezel * 2));
+  L.hgt.save();
+  roundRectPath(L.hgt, x + 6, y + 6, w - 12, h - 12, 22);
+  L.hgt.fillStyle = rgbaCss('#ffffff', 0.18);
+  L.hgt.fill();
+  roundRectPath(L.hgt, x + inset * 0.72, y + inset * 0.72, w - inset * 1.44, h - inset * 1.44, 14);
+  L.hgt.strokeStyle = rgbaCss('#000000', 0.6);
+  L.hgt.lineWidth = 6;
+  L.hgt.stroke();
+  L.hgt.restore();
+
+  L.alb.save();
+  L.alb.fillStyle = gradientRamp(L.alb, x, y, x, y + h, [[0, '#ffffff', 0.10], [0.5, '#000000', 0.06], [1, '#000000', 0.26]]);
+  L.alb.fillRect(x, y, w, h);
+  L.alb.restore();
+
+  // Soft keys: four a side, aligned with the display's row pitch.
+  for (let i = 0; i < 4; i++) {
+    const ky = y + inset + (h - inset * 2) * (0.155 + i * 0.23);
+    for (const side of [0, 1]) {
+      const kx = side === 0 ? x + inset * 0.5 : x + w - inset * 0.5;
+      L.hgt.save();
+      roundRectPath(L.hgt, kx - inset * 0.32, ky - 11, inset * 0.64, 22, 4);
+      L.hgt.fillStyle = rgbaCss('#000000', 0.45);
+      L.hgt.fill();
+      L.hgt.restore();
+      L.alb.save();
+      roundRectPath(L.alb, kx - inset * 0.32, ky - 11, inset * 0.64, 22, 4);
+      L.alb.fillStyle = '#14181a';
+      L.alb.fill();
+      L.alb.restore();
+      litLegend(L, MFD_KEYS[side * 4 + i], kx, ky + 5, {
+        size: 15, align: 'center', color: C.legend, glow: C.cyan, track: 0.06,
+      });
+    }
+  }
+
+  // Data plate along the bottom rail, and a dark surround inside the aperture.
+  litLegend(L, 'MULTI FUNCTION DISPLAY', x + w / 2, y + h - inset * 0.30, {
+    size: 15, align: 'center', color: C.legendDim, glow: C.cyan, track: 0.2,
+  });
+  legend(L.alb, 'PWR  BRT  CON  MODE', x + w / 2, y + inset * 0.62, {
+    size: 14, align: 'center', color: C.legendDim, track: 0.18, font: FONT_MONO,
+  });
+  L.alb.save();
+  roundRectPath(L.alb, x + inset, y + inset, w - inset * 2, h - inset * 2, 10);
+  L.alb.fillStyle = '#050708';
+  L.alb.fill();
+  L.alb.restore();
+  orm(L, x + inset, y + inset, w - inset * 2, h - inset * 2, { rough: 0.22, metal: 0.0, ao: 0.35 });
+
+  screws(L, x + 10, y + 10, w - 20, h - 20, rng, { inset: 16, radius: 4.6, every: 150 });
 }
 
 // ---------------------------------------------------------------------- build

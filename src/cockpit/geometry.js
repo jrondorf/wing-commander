@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeRng } from '../core/Rand.js';
 import {
-  PANEL, MFD, RADAR, STACK, COAMING, CONSOLE, THROTTLE, STICK, CANOPY,
+  PANEL, MFD, RADAR, STACK, SWITCHES, KNOBS, COAMING, CONSOLE, THROTTLE, STICK, CANOPY,
 } from './layout.js';
 import { uvRect } from './atlas.js';
 
@@ -93,15 +93,38 @@ function planarUV(geo, { front, side, w, h, cx = 0, cy = 0, sideScale = 2.4 }) {
   return geo;
 }
 
-/** Strip everything merge cannot reconcile. */
+/**
+ * Put a geometry into the one shape `mergeGeometries` accepts: position/normal/uv
+ * only, no groups, no morphs, and **non-indexed**.
+ *
+ * The last part is not optional. ExtrudeGeometry comes back non-indexed while
+ * TubeGeometry, the primitives and the lofts come back indexed, and merging a
+ * mixture returns `null` rather than throwing — which surfaces four calls later
+ * as an unrelated TypeError. Flattening everything here makes the mixture legal
+ * and costs a few thousand duplicated vertices on a mesh drawn once.
+ */
 function normalize(geo) {
-  for (const k of Object.keys(geo.attributes)) {
-    if (k !== 'position' && k !== 'normal' && k !== 'uv') geo.deleteAttribute(k);
+  let g = geo;
+  for (const k of Object.keys(g.attributes)) {
+    if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
   }
-  if (!geo.getAttribute('normal')) geo.computeVertexNormals();
-  geo.clearGroups();
-  geo.morphAttributes = {};
-  return geo;
+  if (!g.getAttribute('normal')) g.computeVertexNormals();
+  g.clearGroups();
+  g.morphAttributes = {};
+  if (g.index) {
+    const flat = g.toNonIndexed();
+    g.dispose();
+    g = flat;
+    g.clearGroups();
+  }
+  return g;
+}
+
+/** `mergeGeometries` returns null on a mismatch; make that fail loudly, here. */
+function merge(parts, where) {
+  const out = mergeGeometries(parts.map(normalize), false);
+  if (!out) throw new Error(`cockpit/geometry: merge failed in ${where}`);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +192,7 @@ function slab(shape, { depth = 0.05, bevel = 0.008, bevelSize = 0.010, segments 
  * Loft a grid of rows into an indexed surface. `rows[i][j]` is a Vector3;
  * i runs along v, j along u.
  */
-function loft(rows, { closeU = false, flip = false } = {}) {
+function loft(rows, { closeU = false, flip = false, vStops = null } = {}) {
   const nR = rows.length;
   const nC = rows[0].length;
   const cols = closeU ? nC : nC;
@@ -182,7 +205,7 @@ function loft(rows, { closeU = false, flip = false } = {}) {
       pos[o] = p.x; pos[o + 1] = p.y; pos[o + 2] = p.z;
       const q = (i * nC + j) * 2;
       uv[q] = j / (nC - 1);
-      uv[q + 1] = i / (nR - 1);
+      uv[q + 1] = vStops ? vStops[i] : i / (nR - 1);
     }
   }
   const idx = [];
@@ -266,7 +289,7 @@ function buildMfdBezel(cx) {
   const outer = roundedRect(MFD.size + MFD.bezel * 2, MFD.size + MFD.bezel * 2, 0.020);
   outer.holes.push(roundedHole(MFD.size - 0.004, MFD.size - 0.004, 0.012));
   const geo = slab(outer, { depth: MFD.relief + 0.010, bevel: 0.005, bevelSize: 0.006, segments: 2, curve: 4 });
-  planarUV(geo, { front: 'trim', side: 'trim', w: MFD.size + MFD.bezel * 2, h: MFD.size + MFD.bezel * 2 });
+  planarUV(geo, { front: 'plate', side: 'trim', w: MFD.size + MFD.bezel * 2, h: MFD.size + MFD.bezel * 2 });
   const m = panelMatrix().multiply(new THREE.Matrix4().makeTranslation(cx, MFD.y, MFD.relief));
   geo.applyMatrix4(m);
   return normalize(geo);
@@ -299,7 +322,7 @@ function buildCoaming() {
     return [
       new THREE.Vector3(x, top, COAMING.nearZ),
       new THREE.Vector3(x, frontTop, COAMING.farZ),
-      new THREE.Vector3(x, frontTop - 0.070, COAMING.farZ + 0.014),
+      new THREE.Vector3(x, frontTop - COAMING.lipDrop, COAMING.farZ + 0.014),
       new THREE.Vector3(x * 0.995, top - COAMING.thickness, COAMING.nearZ + 0.008),
     ];
   };
@@ -310,7 +333,9 @@ function buildCoaming() {
     rows.push(row);
   }
   rows.push(rows[0].map((v) => v.clone()));  // close the loop
-  const geo = loft(rows, { flip: true });
+  // The deck (station 0 -> 1) is the only face the pilot sees, so it gets 70 %
+  // of the region's height; the front lip and underside share the rest.
+  const geo = loft(rows, { flip: true, vStops: [0, 0.70, 0.85, 0.97, 1] });
   toRegion(geo, 'coaming');
 
   // End caps so the hood is a solid, not a shell.
@@ -327,7 +352,7 @@ function buildCoaming() {
     quad.computeVertexNormals();
     caps.push(toRegion(quad, 'grey'));
   }
-  return normalize(mergeGeometries([geo, ...caps], false));
+  return merge([geo, ...caps], 'coaming');
 }
 
 /** Side console deck, canted outboard, with a raised switch plate. */
@@ -382,18 +407,13 @@ function buildCheek(sign) {
 /** Sixteen toggles: a pocket ring, a metal bat lever, and a nylon boot. */
 function buildSwitches(rng) {
   const parts = [];
-  const halfM = MFD.size / 2;
-  const colX = [
-    (MFD.leftX + halfM - STACK.halfWidth) / 2 - 0.012,
-    (MFD.rightX - halfM + STACK.halfWidth) / 2 + 0.012,
-  ];
   const spots = [];
-  for (let c = 0; c < 2; c++) for (let i = 0; i < 4; i++) spots.push([colX[c], 0.095 - i * 0.058]);
-  for (let i = 0; i < 10; i++) {
-    const bx = -0.50 + i * 0.111;
-    if (Math.abs(bx) < STACK.halfWidth * 0.7) continue;
-    spots.push([bx, -PANEL.h / 2 + 0.048]);
+  for (let c = 0; c < 2; c++) {
+    for (let i = 0; i < SWITCHES.rows; i++) {
+      spots.push([(c === 0 ? -1 : 1) * SWITCHES.colX, SWITCHES.topY - i * SWITCHES.pitch]);
+    }
   }
+  void STACK;
 
   const M = panelMatrix();
   for (const [x, y] of spots) {
@@ -407,12 +427,12 @@ function buildSwitches(rng) {
     lever.translate(0, 0.010, 0);
     const tip = new THREE.SphereGeometry(0.0036, 8, 6);
     tip.translate(0, 0.020, 0);
-    const bat = mergeGeometries([lever, tip], false);
+    const bat = merge([lever, tip], 'switch-bat');
     bat.rotateX(tilt);
     bat.translate(0, 0.007, 0);
     toRegion(bat, 'trim', { uRange: [0.2, 0.45], vRange: [0.3, 0.6] });
 
-    const one = mergeGeometries([boot, bat], false);
+    const one = merge([boot, bat], 'switch');
     // Panel space has the switch axis along +Z (out of the face); the parts were
     // built along +Y.
     one.rotateX(Math.PI / 2);
@@ -422,38 +442,41 @@ function buildSwitches(rng) {
   }
 
   // Two guarded covers over the arming switches — the shape reads instantly.
-  for (const x of [-0.585, 0.585]) {
+  for (const x of [-0.150, 0.150]) {
     const g = new THREE.BoxGeometry(0.030, 0.014, 0.026);
     g.translate(0, 0.009, 0);
     g.rotateX(-0.5);
     toRegion(g, 'trim', { uRange: [0.5, 0.8], vRange: [0.1, 0.4] });
     g.rotateX(Math.PI / 2);
-    g.translate(x, -0.058, 0.006);
+    g.translate(x, -0.118, 0.006);
     g.applyMatrix4(M);
     parts.push(normalize(g));
   }
-  return mergeGeometries(parts, false);
+  return merge(parts, 'switches');
 }
 
-/** Rotary knobs at the panel corners: contrast, gain. */
-function buildKnobs() {
+/** Rotary knobs on the outboard strips: contrast, brightness, gain, volume. */
+function buildKnobs(rng) {
   const parts = [];
   const M = panelMatrix();
-  for (const [x, y] of [[-0.585, -PANEL.h / 2 + 0.070], [0.520, -PANEL.h / 2 + 0.070]]) {
-    const body = new THREE.CylinderGeometry(0.0165, 0.0185, 0.018, 14, 1, false);
-    body.translate(0, 0.009, 0);
-    const skirt = new THREE.CylinderGeometry(0.0215, 0.0215, 0.004, 14, 1, false);
-    skirt.translate(0, 0.002, 0);
-    const mark = new THREE.BoxGeometry(0.0024, 0.019, 0.014);
-    mark.translate(0, 0.010, 0.011);
-    const k = mergeGeometries([body, skirt, mark], false);
-    toRegion(k, 'detail', { uRange: [0.55, 0.95], vRange: [0.1, 0.5] });
-    k.rotateX(Math.PI / 2);
-    k.translate(x, y, 0.002);
-    k.applyMatrix4(M);
-    parts.push(normalize(k));
+  for (const sx of [-1, 1]) {
+    for (let i = 0; i < KNOBS.ys.length; i++) {
+      const body = new THREE.CylinderGeometry(KNOBS.r * 0.80, KNOBS.r * 0.90, 0.020, 14, 1, false);
+      body.translate(0, 0.010, 0);
+      const skirt = new THREE.CylinderGeometry(KNOBS.r, KNOBS.r, 0.005, 16, 1, false);
+      skirt.translate(0, 0.0025, 0);
+      const mark = new THREE.BoxGeometry(0.0026, 0.021, KNOBS.r * 0.75);
+      mark.translate(0, 0.011, KNOBS.r * 0.42);
+      const k = merge([body, skirt, mark], 'knob');
+      toRegion(k, 'detail', { uRange: [0.55, 0.95], vRange: [0.1, 0.5] });
+      k.rotateY(rng.range(-0.9, 0.9));
+      k.rotateX(Math.PI / 2);
+      k.translate(sx * KNOBS.x, KNOBS.ys[i], 0.002);
+      k.applyMatrix4(M);
+      parts.push(normalize(k));
+    }
   }
-  return mergeGeometries(parts, false);
+  return merge(parts, 'knobs');
 }
 
 // ---------------------------------------------------------------------------
@@ -553,7 +576,7 @@ function buildCanopyFrame() {
       new THREE.Vector3(A.x * 1.03, A.y - 0.30, A.z + 0.24),
     ], CANOPY.tubeRadius * 0.55, { radial: 6, tubular: 10 }));
   }
-  return mergeGeometries(parts, false);
+  return merge(parts, 'canopy-frame');
 }
 
 // ---------------------------------------------------------------------------
@@ -570,7 +593,7 @@ export function buildStick() {
   const head = new THREE.SphereGeometry(0.026, 14, 10);
   head.scale(1, 0.8, 1.05);
   head.translate(0, STICK.length * 0.95, 0);
-  const merged = mergeGeometries([shaft, grip, head], false);
+  const merged = merge([shaft, grip, head], 'stick-grip');
   toRegion(merged, 'detail', { uRange: [0.02, 0.55], vRange: [0.05, 0.95] });
   parts.push(normalize(merged));
 
@@ -590,7 +613,7 @@ export function buildStick() {
   toRegion(hat, 'trim', { uRange: [0.3, 0.5], vRange: [0.6, 0.8] });
   parts.push(normalize(hat));
 
-  return mergeGeometries(parts, false);
+  return merge(parts, 'stick');
 }
 
 /** Throttle quadrant: a slotted deck plate and a lever with a knurled grip. */
@@ -609,7 +632,7 @@ export function buildThrottleLever() {
   detent.translate(0, THROTTLE.armLength * 0.72, 0);
   toRegion(detent, 'trim', { uRange: [0.4, 0.6], vRange: [0.1, 0.3] });
   parts.push(normalize(detent));
-  return mergeGeometries(parts, false);
+  return merge(parts, 'throttle');
 }
 
 /** The fixed slot plate the throttle rides in. */
@@ -648,12 +671,12 @@ export function buildCockpitGeometry(engine, { seed = 7717 } = {}) {
       buildCheek(-1),
       buildCheek(1),
       buildSwitches(rng),
-      buildKnobs(),
+      buildKnobs(rng),
       buildCanopyFrame(),
       buildThrottleDeck(),
     ].map(normalize);
 
-    const tub = mergeGeometries(parts, false);
+    const tub = merge(parts, 'tub');
     for (const p of parts) p.dispose();
     tub.computeBoundingSphere();
 

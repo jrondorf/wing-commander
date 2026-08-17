@@ -98,6 +98,7 @@ attribute vec3 iPos;
 attribute vec3 iVel;
 attribute vec4 iA;   // x: diameter  y: roll  z: temperature  w: alpha
 attribute vec4 iB;   // x: seed      y: atlas variant  z: erosion  w: stretch/m
+attribute vec3 iTint;
 
 uniform float uSoftScale;
 
@@ -111,6 +112,7 @@ varying float vErode;
 varying float vViewDepth;
 varying float vSoft;
 varying vec3  vViewPos;
+varying vec3  vTint;
 
 void main() {
   vec2 c = position.xy * 2.0;      // base quad spans -0.5..0.5
@@ -142,6 +144,7 @@ void main() {
   vAlpha = iA.w;
   vSeed = iB.x;
   vErode = iB.z;
+  vTint = iTint;
   vViewDepth = -mv.z;
   vSoft = iA.x * uSoftScale;
 
@@ -173,6 +176,7 @@ varying float vErode;
 varying float vViewDepth;
 varying float vSoft;
 varying vec3  vViewPos;
+varying vec3  vTint;
 
 vec2 atlasUv(vec2 luv) { return (clamp(luv, 0.012, 0.988) + vTile) * 0.5; }
 
@@ -209,19 +213,23 @@ void main() {
   n = normalize(n + vec3(-hx, -hy, 0.0) * 2.6);
 
   // ---- emission --------------------------------------------------------------
-  vec3 chroma = texture2D(uRamp, vec2(vTemp, 0.5)).rgb;
+  vec3 chroma = texture2D(uRamp, vec2(vTemp, 0.5)).rgb * vTint;
   float e = pow(vTemp, 2.55) * uEmissive;
   // Optically thin at the edges: you look through more glowing gas near the rim.
   float rim = pow(1.0 - n.z, 2.4);
-  vec3 col = chroma * e * (1.0 + rim * uRim);
+  // Hot gas is not uniformly bright across a puff: the same detail octave that
+  // erodes the silhouette also modulates the emission, so the fireball has
+  // burning filaments inside it rather than a flat glowing card.
+  float fil = mix(1.0, 0.35 + 1.45 * tex.g, uDetail * 0.85);
+  vec3 col = chroma * e * (1.0 + rim * uRim) * fil;
 
 #ifdef VFX_LIT
   vec3 lit = uAmbient + uKeyColor * max((dot(n, uKeyDirView) + 0.42) / 1.42, 0.0);
   // Self-shadowing approximation: the denser the puff, the less light reaches
   // the far side of it. Without this smoke is a flat grey wash.
   lit *= mix(1.0, 0.42, vfxSat(tex.b));
-  col += uAlbedo * lit;
-  col += vfxFireLighting(n, vViewPos, uAlbedo);
+  col += uAlbedo * vTint * lit;
+  col += vfxFireLighting(n, vViewPos, uAlbedo * vTint);
 #endif
 
   a *= vfxSoftFade(vViewDepth, vSoft);
@@ -258,6 +266,14 @@ varying float vScroll;
 varying float vViewDepth;
 varying float vSoft;
 varying vec3  vViewPos;
+varying vec3  vWorldDir;
+
+// Camera world-space basis. Lets the vertex shader turn a view-space position
+// back into a world direction without an inverse matrix — needed because the
+// billboard branch expands the quad *after* the modelView transform.
+uniform vec3 uCamRight;
+uniform vec3 uCamUp;
+uniform vec3 uCamZ;
 
 vec3 qrot(vec4 q, vec3 v) {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
@@ -281,6 +297,7 @@ void main() {
 #endif
 
   vViewPos = mv.xyz;
+  vWorldDir = normalize(uCamRight * mv.x + uCamUp * mv.y + uCamZ * mv.z);
   vLocalUv = uv;
   vStrength = iA.y;
   vAlpha = iA.z;
@@ -294,15 +311,37 @@ void main() {
 }
 `;
 
+/**
+ * Refraction source note.
+ *
+ * The honest way to refract is to sample a copy of the framebuffer, and there is
+ * no way to obtain one here: the scene renders into an MSAA HDR target that
+ * cannot be read while it is bound, and the post stack's resolved intermediates
+ * ping-pong under a private index. So the shock front refracts the **nebula
+ * cubemap** — `scene.background`, sampled twice, once along the straight view ray
+ * and once along the bent one, and the *difference* is added.
+ *
+ * That is not a compromise in this game, it is closer to right: in space
+ * essentially everything behind an explosion is at infinity, and adding
+ * (skyBent − skyStraight) to a pixel that already contains skyStraight leaves
+ * exactly skyBent. Where a hull *is* behind the front the difference lands as a
+ * mild coloured smear instead of punching a hole through the ship, which is what
+ * a framebuffer-replacing refraction would do with stale depth.
+ */
 export const DISTORT_FRAG = /* glsl */ `
-uniform sampler2D tScene;
+uniform samplerCube uSky;
 uniform sampler2D uNoise;
 uniform sampler2D uRamp;
 uniform float uTime;
-uniform float uHasScene;
+uniform float uHasSky;
+uniform float uSkyFlip;
+uniform float uRefract;
 uniform vec3  uRimColor;
 uniform float uRimIntensity;
+uniform vec3  uCamRight;
+uniform vec3  uCamUp;
 
+varying vec3  vWorldDir;
 varying vec2  vLocalUv;
 varying vec2  vQuad;
 varying float vStrength;
@@ -346,27 +385,32 @@ void main() {
 
   vec2 off = (turb + refractDir * 0.35) * vStrength * mask;
 
-  vec3 col = vec3(0.0);
-  if (uHasScene > 0.5) {
-    vec2 uv = gl_FragCoord.xy * uInvRes;
-    // Sample the previous frame's resolved colour with a small per-channel
-    // spread: real refraction is dispersive, and the split sells it as a lens
-    // rather than a blur.
-    col.r = texture2D(tScene, clamp(uv + off * 1.06, vec2(0.002), vec2(0.998))).r;
-    col.g = texture2D(tScene, clamp(uv + off,        vec2(0.002), vec2(0.998))).g;
-    col.b = texture2D(tScene, clamp(uv + off * 0.94, vec2(0.002), vec2(0.998))).b;
-  }
-
   float fade = vfxSoftFade(vViewDepth, vSoft);
   mask *= fade;
+
+  vec3 delta = vec3(0.0);
+  if (uHasSky > 0.5 && mask > 0.002) {
+    vec3 base = normalize(vWorldDir);
+    vec3 bent = normalize(base + (uCamRight * off.x + uCamUp * off.y) * uRefract);
+    vec3 fb = vec3(uSkyFlip * base.x, base.yz);
+    // Dispersion: bend the red end fractionally harder than the blue so a strong
+    // front fringes like a lens instead of smearing like a blur.
+    vec3 fr = vec3(uSkyFlip, 1.0, 1.0) * normalize(mix(base, bent, 1.12));
+    vec3 fg = vec3(uSkyFlip * bent.x, bent.yz);
+    vec3 fbb = vec3(uSkyFlip, 1.0, 1.0) * normalize(mix(base, bent, 0.90));
+    vec3 s0 = textureCube(uSky, fb).rgb;
+    vec3 s1 = vec3(textureCube(uSky, fr).r, textureCube(uSky, fg).g, textureCube(uSky, fbb).b);
+    delta = clamp(s1 - s0, vec3(-1.5), vec3(6.0)) * mask;
+  }
 
   vec3 add = vec3(0.0);
 #ifdef VFX_RING
   add = uRimColor * (rim * uRimIntensity * vAlpha * fade);
 #endif
 
-  // Premultiplied: the refracted sample *replaces* the background, the rim adds.
-  gl_FragColor = vec4(col * mask + add, mask);
+  // Pure additive (the material uses src=ONE): the sky delta rewrites the
+  // background in place, the rim adds on top. Alpha is unused.
+  gl_FragColor = vec4(delta + add, 1.0);
 }
 `;
 
@@ -677,7 +721,7 @@ void main() {
     float tt = age / life;
     if (tt >= 1.0) continue;
     // Great-circle angle from the impact point — the wave travels across the
-    // surface of the bubble, which is what the payload's `point` really means.
+    // surface of the bubble, which is what the payload's "point" really means.
     float ang = acos(clamp(dot(n, normalize(uHitDir[i].xyz)), -1.0, 1.0));
     float front = age * uHitParam[i].y;
     float d = ang - front;
