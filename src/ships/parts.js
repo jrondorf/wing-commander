@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import {
   chamferedBox, plate, panelInset, nozzle, intakeDuct, tube, dome, ring, loft,
   rectProfile, ellipseProfile, scaleProfile, xform, mergeGeometries, revolve,
-  mirrorX, shadeCavity, extrudeAlongPath, invertShell,
+  mirrorX, shadeCavity, extrudeAlongPath, invertShell, wing,
 } from './geometryKit.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -30,6 +30,69 @@ function surfaceFrame(normal, tangent) {
   const b = new THREE.Vector3().crossVectors(t, n).normalize();
   t = new THREE.Vector3().crossVectors(n, b).normalize();
   return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(b, t, n));
+}
+
+// --------------------------------------------------------- control surfaces
+
+/**
+ * Vertical stabiliser, canted outboard.
+ *
+ * `wing()` builds a lifting surface with its span running along +X; the whole
+ * trick to a fin that actually reads is rolling that span up into +Y. A fin
+ * built the other way — a stack of flat slabs marching aft and up — is a
+ * *horizontal* ribbon, and in a side-on silhouette it disappears into a scratch.
+ * That is the single most common way a fighter loses its tail.
+ *
+ * `cant` leans the tip outboard in radians; `down` makes it a ventral strake.
+ * The root sits at `pos`, and the pair is mirrored to port properly.
+ */
+export function verticalFin(A, {
+  pos, span = 3.0, rootChord = 4.0, tipChord = 1.5, rootThick = 0.44, tipThick = 0.18,
+  sweep = 2.0, cant = 0.4, down = false, bucket = 'panel', tone = 1.04, mirror = true,
+  tipPod = 0,
+}) {
+  const g = wing({
+    span, rootChord, tipChord, rootThick, tipThick, sweep,
+    stations: A.fine ? 4 : 2, seg: A.fine ? 12 : 8, tipRound: 0.5,
+  });
+  const roll = down ? cant - Math.PI / 2 : Math.PI / 2 - cant;
+  const parts = [xform(g, { rot: [0, 0, roll] })];
+  if (tipPod && A.fine) {
+    // Tip pod — ECM / chaff can. Gives the fin tip a blunt terminator instead of
+    // fading to nothing, which is what makes the tip read at silhouette scale.
+    const pod = tube(tipPod, tipPod * 7, { segments: 8, rEnd: tipPod * 0.55 });
+    const dir = new THREE.Vector3(Math.cos(roll), Math.sin(roll), 0).multiplyScalar(span);
+    parts.push(xform(pod, { pos: [dir.x, dir.y, -tipPod * 3.4 + sweep] }));
+  }
+  const merged = mergeGeometries(parts);
+  if (mirror) A.addMirrored(bucket, merged, { pos, tone });
+  else A.add(bucket, merged, { pos, tone });
+  return A;
+}
+
+/**
+ * Slab pylon carrying an outboard mass (nacelle, weapons pod, tail boom).
+ * Thin in X, deep in Y, chord along Z — so from the front there is *sky* either
+ * side of it and the thing it carries reads as a separate mass. Negative space
+ * is the whole reason a pylon exists in a silhouette.
+ */
+export function pylon(A, {
+  from, to, chord = 3.0, thick = 0.42, bucket = 'metal', tone = 0.84, mirror = true, taper = 0.8,
+}) {
+  const a = new THREE.Vector3(...from), b = new THREE.Vector3(...to);
+  const len = a.distanceTo(b);
+  const prof = rectProfile(thick, chord, Math.min(thick, chord) * 0.3);
+  const g = loft([
+    { pts: prof, z: 0, sx: 1, sy: 1 },
+    { pts: prof, z: len * 0.5, sx: 0.94, sy: taper * 1.06 },
+    { pts: prof, z: len, sx: 0.88, sy: taper },
+  ], {});
+  // Built along +Z; aim it from `a` to `b`, keeping the chord on the ship's Z.
+  const q = new THREE.Quaternion().setFromUnitVectors(V(0, 0, 1), b.clone().sub(a).normalize());
+  const geo = xform(g, { quat: q });
+  if (mirror) A.addMirrored(bucket, geo, { pos: [a.x, a.y, a.z], tone });
+  else A.add(bucket, geo, { pos: [a.x, a.y, a.z], tone });
+  return A;
 }
 
 // ------------------------------------------------------------------- engines
@@ -237,7 +300,9 @@ export function gunMount(A, {
     }
     if (housing) parts.push(xform(chamferedBox(radius * 3.0, radius * 2.6, length * 0.55, radius * 0.6), { pos: [0, 0, -length * 0.16] }));
     const g = mergeGeometries(parts);
-    return xform(g, { pos: [p.x * sx, p.y, p.z], scale: [sx, 1, 1] });
+    // `mirror` reflects *and* fixes the winding — a bare negative scale would
+    // leave the port-side copy inside-out and backface-culled away.
+    return xform(g, { pos: [p.x * sx, p.y, p.z], mirror: sx < 0 });
   };
   A.add('metal', build(1), { tone: 0.72 });
   if (mirror && Math.abs(p.x) > 1e-4) A.add('metal', build(-1), { tone: 0.72 });
@@ -274,7 +339,7 @@ export function missileRail(A, {
       }
     }
     const g = mergeGeometries(parts);
-    return xform(g, { pos: [p.x * sx, p.y, p.z], scale: [sx, 1, 1] });
+    return xform(g, { pos: [p.x * sx, p.y, p.z], mirror: sx < 0 });
   };
   A.add('metal', build(1), { tone: 0.9 });
   if (mirror && Math.abs(p.x) > 1e-4) A.add('metal', build(-1), { tone: 0.9 });

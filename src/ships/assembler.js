@@ -79,6 +79,20 @@ export class ShipAssembler {
   }
 
   /**
+   * Place a part to starboard and its true mirror to port — *including* the
+   * offset. `addPair` mirrors the geometry but re-applies the same `pos`, so it
+   * only works on parts whose position is already baked in; this one takes the
+   * placement and reflects it, which is what an off-centre part actually wants.
+   */
+  addMirrored(bucket, geo, { pos = [0, 0, 0], rot, quat, scale, tone, jitter } = {}) {
+    if (!geo) return this;
+    const base = (rot || quat || scale) ? xform(geo, { rot, quat, scale }) : geo;
+    this.add(bucket, base, { pos, tone, jitter });
+    this.add(bucket, base, { pos: [-pos[0], pos[1], pos[2]], mirror: true, tone, jitter });
+    return this;
+  }
+
+  /**
    * Emissive geometry. Intensity runs 4–30 and the post stack blooms it.
    *
    * Every emitter on a ship should share one (colour, intensity) pair and vary its

@@ -17,7 +17,7 @@
 
 export const STATS = {
   confed_vampire: {
-    mass: 14_500, length: 22,
+    mass: 14_500, length: 22.1,
     maxSpeed: 480, cruiseSpeed: 380, afterburnSpeed: 1400,
     accel: 190, afterburnAccel: 520, retroAccel: 130,
     pitchRate: 1.55, yawRate: 1.35, rollRate: 2.90,
@@ -32,7 +32,7 @@ export const STATS = {
   },
 
   confed_panther: {
-    mass: 22_800, length: 27.5,
+    mass: 22_800, length: 29.1,
     maxSpeed: 420, cruiseSpeed: 330, afterburnSpeed: 1250,
     accel: 160, afterburnAccel: 430, retroAccel: 110,
     pitchRate: 1.25, yawRate: 1.10, rollRate: 2.35,
@@ -47,7 +47,7 @@ export const STATS = {
   },
 
   confed_devastator: {
-    mass: 48_000, length: 34,
+    mass: 48_000, length: 35.4,
     maxSpeed: 300, cruiseSpeed: 240, afterburnSpeed: 820,
     accel: 96, afterburnAccel: 240, retroAccel: 70,
     pitchRate: 0.72, yawRate: 0.64, rollRate: 1.25,
@@ -62,7 +62,7 @@ export const STATS = {
   },
 
   alien_manta: {
-    mass: 11_200, length: 19,
+    mass: 11_200, length: 19.5,
     maxSpeed: 520, cruiseSpeed: 400, afterburnSpeed: 1520,
     accel: 235, afterburnAccel: 600, retroAccel: 150,
     pitchRate: 1.72, yawRate: 1.50, rollRate: 3.20,
