@@ -113,6 +113,21 @@ async function main() {
     } catch (err) { return `unreadable: ${err.message}`; }
   };
 
+  /**
+   * `?hide=starfield,sky` hides scene objects by name. Bisecting which layer owns
+   * a visual artefact beats reasoning about which one *ought* to — two wrong
+   * hypotheses about frame speckle (starfield density, then nebula octaves) cost
+   * more captures than simply switching each layer off would have.
+   */
+  const hideObjects = (names) => {
+    const wanted = new Set(names);
+    let hidden = 0;
+    game.engine.scene.traverse((o) => {
+      if (o.name && wanted.has(o.name)) { o.visible = false; hidden++; }
+    });
+    console.log(`[diag] hid ${hidden} object(s) matching: ${names.join(',')}`);
+  };
+
   const dumpDiag = () => {
     const e = game.engine;
     const fmt = (v) => v.toArray().map((n) => n.toFixed(1)).join(',');
@@ -180,6 +195,7 @@ async function main() {
       seconds: Number(params.get('t') ?? 5),
       seed,
       onBeforeShot: () => {
+        if (params.has('hide')) hideObjects(params.get('hide').split(',').map((s) => s.trim()));
         if (params.has('flatmat')) applyFlatMaterials();
         if (params.has('dropmaps')) dropMaps(params.get('dropmaps').split(',').map((s) => s.trim()));
         if (params.has('diag')) dumpDiag();

@@ -250,7 +250,9 @@ function defaultSettings() {
 
     godRays: {
       enabled: true,
-      intensity: 0.55,
+      // 0.55 threw a starburst across the entire vista and flattened everything
+      // behind it. Shafts should suggest depth, not become the subject.
+      intensity: 0.30,
       density: 0.9,
       decay: 0.94,
       weight: 0.85,

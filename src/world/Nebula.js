@@ -115,8 +115,13 @@ void main() {
   // masses with filament structure riding on top; running the ridged multifractal
   // at high frequency and full modulation depth turns the whole sky into uniform
   // lacework that reads as lichen and competes with the ships for attention.
-  float det = wcFbm(p * 1.35 + 71.0, 4);
-  float fil = wcRidged(p * 2.15 + det * 0.45, 4, 1.35);
+  // Octave count is the speckle control, not amplitude. Four octaves from a 2.15
+  // base puts the top octave near texel scale on the cubemap face, which reads as
+  // bright flecks scattered over the whole sky — indistinguishable from sensor
+  // noise or dead pixels, and present on every preset regardless of colour. Gas
+  // structure lives in the low octaves; the high ones only add grit.
+  float det = wcFbm(p * 1.35 + 71.0, 3);
+  float fil = wcRidged(p * 2.15 + det * 0.45, 2, 1.35);
   float dn = det * 0.5 + 0.5;
 
   // Coverage is the thing that decides whether a sky reads as a nebula or as a
@@ -144,8 +149,15 @@ void main() {
   emis *= pow(g, 1.05);
 
   // Ionisation front — gas glows hardest where the dust wall shadows it.
-  float rim = du * (1.0 - du) * 4.0;
-  emis += uGasHot * rim * g * 0.80;
+  //
+  // du*(1-du) peaks at 0.25 wherever du crosses 0.5, which is *every* dust
+  // boundary in the sky. Scaled by 4.0 and added at 0.80 it drew a hard bright
+  // outline around every dust blob, and those outlines were the speckle that
+  // showed up on every preset — confirmed by hiding the starfield entirely and
+  // seeing an identical frame. An ionisation front should appear on the few
+  // boundaries facing the star, not trace every isosurface in the volume.
+  float rim = du * (1.0 - du) * 1.6;
+  emis += uGasHot * rim * g * 0.30;
 
   // Embedded clusters, deliberately over-range.
   emis += uGasHot * glow * (0.25 + g) * 3.4;

@@ -147,7 +147,15 @@ void main() {
  * @param {object} opts
  * @returns {{ object3D: THREE.Group, setSky: Function, setPole: Function, resize: Function, dispose: Function, stats: object }}
  */
-export function createStarfield(engine, { seed = 1337, count = 24000, spikes = 40 } = {}) {
+/**
+ * Density note: 24000 stars over the sphere puts roughly 1300 in a 62° frame, each
+ * up to 7.5 px and then bloomed at exposure 3.2 — the frame reads as sensor noise
+ * rather than sky, and it was the "speckle" visible on every preset regardless of
+ * nebula colour. The naked-eye sky holds about 5000 stars *in total*; a single
+ * frame should show hundreds, not thousands. Sizes are pulled down for the same
+ * reason: they were authored before the exposure calibration.
+ */
+export function createStarfield(engine, { seed = 1337, count = 9000, spikes = 28 } = {}) {
   const rng = makeRng(seed ^ 0x5ad0);
   const t0 = performance.now();
 
@@ -216,7 +224,7 @@ export function createStarfield(engine, { seed = 1337, count = 24000, spikes = 4
     for (let c = 0; c < 3; c++) {
       colors[i * 3 + c] = (rgb[c] * sat + (1 - sat)) * bright;
     }
-    sizes[i] = clamp(1.05 + 5.2 * Math.pow(bright, 1.55), 1.0, 7.5);
+    sizes[i] = clamp(0.75 + 3.4 * Math.pow(bright, 1.75), 0.7, 5.0);
   }
 
   const geo = new THREE.BufferGeometry();
