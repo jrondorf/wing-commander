@@ -3,6 +3,25 @@
 **Read this fully before writing a single line.** Many agents work on this codebase in
 parallel. The rules below are what keep the result composable.
 
+> **Calibrated constants — do not "tidy" these.** Several numbers in this codebase were
+> solved against measurements, not chosen by eye. Changing them without redoing the
+> measurement will silently undo real work:
+>
+> | Constant | Value | Where | Why |
+> |---|---|---|---|
+> | Tone-map exposure | 3.2 | `render/PostProcessing.js` | At 1.0 a correctly-authored hull albedo (~0.17 linear) sits so far down the ACES curve that ships read as black silhouettes. |
+> | `envIntensity` | per preset | `world/Presets.js` | Each is solved so the nebula PMREM's measured irradiance lands at 12 % of that preset's key radiance. Nebulae are not equally bright; a shared constant is the wrong shape. Per-preset irradiance figures are in that file's header. |
+> | Anamorphic streaks | 0.10 | `render/PostProcessing.js` | At 0.17 one blown-out hull threw a hard horizontal band across the frame. |
+> | Film grain | 0.010 | `render/PostProcessing.js` | Grain is shadow-weighted; over mostly-dark space 0.026 read as noise across the whole image. |
+>
+> **Debugging a bad-looking frame:** use the diagnostic switches before forming a
+> hypothesis. `?diag=1` dumps the scene graph, camera, ship bounds and every material's
+> parameters. `?flatmat=1` swaps in a neutral grey material — if the ship lights up, the
+> fault is texture authoring, not lighting or geometry. `?dropmaps=map,aoMap` detaches
+> named texture slots and reports each one's average colour. `?post=tonemap.exposure=4`
+> overrides any pipeline setting live. `?nopost=1` bypasses post entirely.
+> Guessing at a dark frame wasted more time on this project than any other single thing.
+
 ---
 
 ## 0. The bar
