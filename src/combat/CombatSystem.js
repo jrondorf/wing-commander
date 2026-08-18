@@ -33,6 +33,13 @@ export function createCombatSystem(engine) {
 
   /** @type {Map<object, object>} per-ship combat state */
   const state = new Map();
+
+  // Swept-segment collision needs an oriented box per ship each frame. The records
+  // are cached and mutated in place: rebuilding this list every frame for a 40-ship
+  // battle would allocate thousands of objects a second.
+  /** @type {Map<object, object>} */
+  const hullRecords = new Map();
+  const hulls = [];
   let playerFiring = false;
 
   const _pos = new THREE.Vector3();
@@ -133,7 +140,10 @@ export function createCombatSystem(engine) {
         rng,
       });
 
-      gun.cooldown = 1 / Math.max(0.01, w.refire ?? 5);
+      // refire is the interval between shots in seconds, not a rate. Inverting it
+      // turned the mass driver's 0.22 s cadence into a 4.5 s one and left only two
+      // bolts in flight during a sustained burst.
+      gun.cooldown = Math.max(0.02, w.refire ?? 0.2);
       events?.emit('weapon:fired', {
         ship, weapon: w, position: muzzle.clone(), direction: _dir.clone(),
       });
@@ -155,6 +165,38 @@ export function createCombatSystem(engine) {
       events?.emit('missile:launched', { ship, target: tgt, bay });
     }
     return ok !== false;
+  }
+
+  const _hc = new THREE.Vector3();
+
+  /** Refresh the oriented-box colliders projectiles are tested against. */
+  function refreshHulls(game) {
+    hulls.length = 0;
+    for (const ship of game?.ships ?? []) {
+      const b = ship.body;
+      if (!b || ship.alive === false) continue;
+      let rec = hullRecords.get(ship);
+      if (!rec) {
+        rec = {
+          ok: true, ship,
+          center: new THREE.Vector3(),
+          quat: new THREE.Quaternion(),
+          half: new THREE.Vector3(1, 1, 1),
+          radius: 1,
+          velocity: new THREE.Vector3(),
+        };
+        hullRecords.set(ship, rec);
+      }
+      rec.ok = true;
+      rec.quat.copy(b.quaternion);
+      // Bounds centre is in ship-local space; put it where the hull actually is.
+      _hc.copy(b.boundsCenter ?? { x: 0, y: 0, z: 0 }).applyQuaternion(b.quaternion);
+      rec.center.copy(b.position).add(_hc);
+      if (b.halfExtents) rec.half.copy(b.halfExtents);
+      rec.radius = b.boundsRadius ?? b.radius ?? 12;
+      rec.velocity.copy(b.velocity ?? { x: 0, y: 0, z: 0 });
+      hulls.push(rec);
+    }
   }
 
   function update(dt, eng) {
@@ -193,8 +235,11 @@ export function createCombatSystem(engine) {
       ship.combat = s;
     }
 
-    pool.update?.(dt, eng);
-    pool.syncInstances?.();
+    // pool.update expects a collision context, not the engine. Passing the engine
+    // meant ctx.hulls was undefined, so every bolt flew straight through every
+    // ship and nothing could ever be damaged.
+    refreshHulls(game);
+    pool.update(dt, { hulls, softTargets: missiles.missiles ?? null });
     missiles.update?.(dt, eng);
     damage.update?.(dt, eng);
     targeting.update?.(dt, eng);

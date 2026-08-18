@@ -67,6 +67,7 @@ export async function setupShot(game, { id, seconds = 5, seed = 1337, onBeforeSh
     missing: game.missing,
     broken: game.broken,
     ships: game.ships.length,
+    projectiles: game.combat?.pool?.count ?? null,
     frame,
   };
   window.__READY__ = true;
