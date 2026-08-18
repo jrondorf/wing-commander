@@ -71,7 +71,16 @@ void main() {
   // ---- dust: its own field, warped by the same flow so it hugs the gas ------
   vec3 pd = p * 1.28 + vec3(101.0, 57.0, 13.0);
   float dbase = wcFbm(pd + uWarp * 0.72 * r, 5);
-  float dust = wcSat(smoothstep(-0.14, 0.40, dbase) * uDust * mix(0.40, 1.20, wall));
+  // The remap window must span the noise, or the field is binarized at birth.
+  //
+  // This read smoothstep(-0.14, 0.40, dbase). dbase is fbm over roughly [-1, 1],
+  // so that narrow window drove a large fraction of the sky hard to 0 or 1 before
+  // the gain, and wcSat clipped the rest. Measured, the dust channel came back
+  // 20 percent exactly 0 and over 5 percent exactly 1.0 with a median of 0.14 —
+  // a two-valued mask, which is what produced the hard-edged speckle visible on
+  // every preset. Window widened to span the noise and gain reduced so the
+  // product no longer clips.
+  float dust = wcSat(smoothstep(-0.50, 0.55, dbase) * uDust * 0.72 * mix(0.40, 1.20, wall));
 
   // ---- which parts of the cloud are ionised to the hot colour --------------
   float hue = wcSat(wcFbm(p * 0.52 + 143.0, 3) * 0.85 + 0.5);
@@ -202,6 +211,47 @@ void main() {
  * @param {object} [opts]
  * @returns {{ texture: THREE.CubeTexture, envMap: THREE.Texture, timings: object, dispose: Function }}
  */
+/**
+ * Sample the structure pass's dust channel and report its distribution.
+ *
+ * The absorption window in the sky shader has to span where the data actually
+ * lives. Guessing that window collapsed the field to two values (speckle) in one
+ * direction and to fully-opaque (black sky) in the other. This measures the real
+ * percentiles so the window can be solved instead, the same way per-preset
+ * envIntensity was solved against measured PMREM irradiance.
+ *
+ * Reads every face of the half-float cube target and returns percentiles of the
+ * green channel, which the structure pass writes dust into.
+ */
+export function probeDustDistribution(renderer, loTarget, size) {
+  const samples = [];
+  const buf = new Uint16Array(size * size * 4);
+  const fromHalf = (h) => {
+    const s = (h & 0x8000) >> 15, e = (h & 0x7c00) >> 10, f = h & 0x03ff;
+    if (e === 0) return (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
+    if (e === 31) return f ? NaN : (s ? -1 : 1) * Infinity;
+    return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
+  };
+  for (let face = 0; face < 6; face++) {
+    try {
+      renderer.readRenderTargetPixels(loTarget, 0, 0, size, size, buf, face);
+    } catch { return null; }
+    // Stride the face rather than taking every texel; 6 faces at 384 square is
+    // ~885k samples and a few thousand is plenty for percentiles.
+    const stride = Math.max(1, Math.floor((size * size) / 3000));
+    for (let i = 0; i < size * size; i += stride) samples.push(fromHalf(buf[i * 4 + 1]));
+  }
+  if (!samples.length) return null;
+  samples.sort((a, b) => a - b);
+  const pct = (p) => samples[Math.min(samples.length - 1, Math.floor(p * samples.length))];
+  return {
+    n: samples.length,
+    min: +pct(0).toFixed(4), p05: +pct(0.05).toFixed(4), p20: +pct(0.20).toFixed(4),
+    p50: +pct(0.50).toFixed(4), p80: +pct(0.80).toFixed(4), p95: +pct(0.95).toFixed(4),
+    max: +pct(0.999).toFixed(4),
+  };
+}
+
 export function generateNebula(renderer, sky, { size = 1024, structureSize = 384 } = {}) {
   const timings = {};
   let t0 = performance.now();
@@ -217,6 +267,11 @@ export function generateNebula(renderer, sky, { size = 1024, structureSize = 384
     uWall: { value: sky.wall.clone() },
   });
   structurePass.render(renderer, loTarget);
+
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('dustprobe')) {
+    console.log('[nebula] dust channel distribution:',
+      JSON.stringify(probeDustDistribution(renderer, loTarget, structureSize)));
+  }
   renderer.getContext().finish();
   structurePass.dispose();
   timings.structure = +(performance.now() - t0).toFixed(1);
