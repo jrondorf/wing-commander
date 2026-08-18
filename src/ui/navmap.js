@@ -299,19 +299,39 @@ export function createNavMap(canvas) {
       // does not print half a callsign off the panel.
       const name = p.name.toUpperCase();
       const lx = clampLabel(ctx, name, x, w);
-      plate(ctx, name, lx, y - R * 1.5 - fs * 0.4);
-      ctx.fillStyle = hexA(col, 0.95);
-      ctx.fillText(name, lx, y - R * 1.5);
+      // Nav names must claim space in the occupancy list like everything else.
+      // This block previously drew at a fixed offset and registered nothing, so
+      // two nav points close together printed their callsigns straight through
+      // each other, and leg distances had nothing to avoid.
+      const ny = place(ctx, name, lx, [
+        y - R * 1.5,
+        y - R * 1.5 - fs * 1.35,
+        y - R * 1.5 - fs * 2.7,
+        y + R * 1.5 + fs * 1.9,
+      ], fs, taken);
+      if (ny != null) {
+        plate(ctx, name, lx, ny - fs * 0.4);
+        ctx.fillStyle = hexA(col, 0.95);
+        ctx.fillText(name, lx, ny);
+      }
       ctx.textBaseline = 'top';
       ctx.font = `${Math.round(fs * 0.82)}px ui-monospace, 'DejaVu Sans Mono', monospace`;
       // The name already carries the nav number; the sub-label says what kind
       // of place it is, which is the thing the plot cannot show by shape alone.
       const sub = p.hostile ? 'THREAT' : p.kind === 'base' ? 'FRIENDLY'
         : p.kind === 'jump' ? 'JUMP POINT' : 'WAYPOINT';
+      const subFs = Math.round(fs * 0.82);
       const sx2 = clampLabel(ctx, sub, x, w);
-      plate(ctx, sub, sx2, y + R * 1.5);
-      ctx.fillStyle = hexA(col, 0.62);
-      ctx.fillText(sub, sx2, y + R * 1.5);
+      const sy = place(ctx, sub, sx2, [
+        y + R * 1.5,
+        y + R * 1.5 + subFs * 1.35,
+        y + R * 1.5 + subFs * 2.7,
+      ], subFs, taken);
+      if (sy != null) {
+        plate(ctx, sub, sx2, sy);
+        ctx.fillStyle = hexA(col, 0.62);
+        ctx.fillText(sub, sx2, sy);
+      }
     });
   }
 
