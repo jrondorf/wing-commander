@@ -196,7 +196,11 @@ export const SHOT_SCENES = {
       game.viewMode = 'chase';
       game.cameraRig?.setMode?.('chase');
       spawnWing(game, 'confed_vampire', 'confed', V(-120, 40, -140), 1);
-      spawnWing(game, 'alien_manta', 'nephilim', V(180, -40, -700), 3, 120);
+      // Off to one side and close, not dead ahead. With the enemies on the
+      // boresight the player fires along the camera axis and the tracer stream
+      // foreshortens into a stub; putting them abeam makes the guns track across
+      // the frame, which is what actually reads as a dogfight.
+      spawnWing(game, 'alien_manta', 'nephilim', V(520, 90, -380), 3, 130);
     },
     tick(ctx, t) {
       if (t > 2) ctx.game.engine.input.injectPress('fire');
