@@ -203,6 +203,8 @@ export function createCameraRig(engine, opts = {}) {
   const _b = new THREE.Vector3();
   const _c = new THREE.Vector3();
   const _fwd = new THREE.Vector3();
+  /** Camera velocity relative to the subject, for the chase spring's feed-forward. */
+  const _rel = new THREE.Vector3();
   const _up = new THREE.Vector3();
   const _right = new THREE.Vector3();
   const _q = new THREE.Quaternion();
@@ -437,9 +439,19 @@ export function createCameraRig(engine, opts = {}) {
       const h = dt / steps;
       const w = c.stiffness;
       const z = c.damping;
+      // Damp against velocity *relative to the subject*, not absolute velocity.
+      //
+      // Damping absolute velocity makes this a spring chasing a moving target,
+      // which settles at a steady-state error of 2*zeta*V/w — at 500 m/s and
+      // w=6.5 that is 161 m of unwanted trail, and the ship shrinks to a speck at
+      // full throttle. Subtracting the subject's velocity turns it into a spring
+      // in the subject's frame, so the error goes to zero at constant speed while
+      // the deliberate speedLag term stays in charge of how far back the camera
+      // sits. Measured before this change: 218 m against a 69 m target.
       for (let i = 0; i < steps; i++) {
+        _rel.copy(st.vel).sub(_b);
         _c.copy(_a).sub(st.pos).multiplyScalar(w * w);
-        _c.addScaledVector(st.vel, -2 * z * w);
+        _c.addScaledVector(_rel, -2 * z * w);
         st.vel.addScaledVector(_c, h);
         st.pos.addScaledVector(st.vel, h);
       }
