@@ -65,6 +65,7 @@ export async function setupShot(game, { id, seconds = 5, seed = 1337, onBeforeSh
     ...engine.stats,
     modules: Object.keys(game.modules),
     missing: game.missing,
+    broken: game.broken,
     ships: game.ships.length,
     frame,
   };

@@ -135,10 +135,25 @@ void main() {
   // than defining it.
   float g = clamp(gas * (0.72 + 0.48 * fil) + 0.16 * gas * dn, 0.0, 1.9);
 
+  // KNOWN DEFECT — the source of the frame speckle, located but not yet fixed.
+  //
+  // Rendered in isolation this term comes back as pure black-and-white noise
+  // across the entire sky: a continuous field collapsed into two values. That
+  // binary dust mask, seen through the absorption exp() below, is the hard-edged
+  // speckle present on every preset regardless of colour. It is not the starfield,
+  // not the filament octaves, and not the ionisation rim — all three were tested
+  // and ruled out.
+  //
+  // Widening the window to 0.15..1.05 without the clamp over-corrected: absorption
+  // went to ~1 everywhere and the sky rendered nearly black (frame mean 5.1, 4
+  // distinct colours). The correct fix needs the actual distribution of the dust
+  // channel from the structure pass measured first — the same measure-then-solve
+  // approach used for envIntensity in Presets.js — rather than another guessed
+  // window. Left at the known-good values until then.
+  //
+  // NB: this block sits inside a JS template literal. Never use backticks in
+  // comments here; they terminate the string and silently break the module.
   float du = dust * 1.05 - 0.20 * fil - 0.10 * dn + 0.06;
-  // A narrow threshold turns the dust field into hard-edged blobs scattered over
-  // the whole sky. Real absorption is a soft gradient with a few dense cores, so
-  // the ramp is wide and the field is biased down to keep coverage sparse.
   du = smoothstep(0.02, 0.72, clamp(du, 0.0, 1.0));
 
   // ---- three colour bands mixing across the sky ----------------------------

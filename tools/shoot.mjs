@@ -172,6 +172,14 @@ for (const scenario of targets) {
     ok = false; note += ' no frame stats — scene never completed a render';
   }
 
+  // A subsystem that exists but threw is always a bug, never an expected
+  // work-in-progress state. Fail the shot loudly rather than quietly rendering
+  // a world with a hole in it.
+  if (stats?.broken?.length) {
+    ok = false;
+    note += ` BROKEN SUBSYSTEM(S): ${stats.broken.map((b) => `${b.name} (${b.error.slice(0, 120)})`).join('; ')}`;
+  }
+
   // 404s for subsystems that have not landed yet are expected during parallel
   // build-out; shader failures never are.
   const realErrors = errors.filter((e) => !/404 \(Not Found\)/.test(e));

@@ -21,6 +21,8 @@ export class Game {
     this.rng = makeRng(seed);
     this.modules = {};
     this.missing = [];
+    /** Subsystems that exist but threw while loading — always a real bug. */
+    this.broken = [];
     this.player = null;
     /** Every active ship (player + NPCs). Systems iterate this. */
     this.ships = [];
@@ -35,7 +37,19 @@ export class Game {
       return result;
     } catch (err) {
       this.missing.push(name);
-      console.warn(`[game] subsystem "${name}" unavailable — ${err?.message ?? err}`);
+      // A module that has not been written yet and a module that throws on
+      // evaluation both land here, and conflating them hides real breakage: a
+      // stray backtick inside a GLSL template literal once took the entire world
+      // offline while the log read "subsystem unavailable", exactly like an
+      // unbuilt module. A 404 is the only benign case.
+      const msg = String(err?.message ?? err);
+      const notBuilt = /Failed to fetch dynamically imported module|Cannot find module|404/i.test(msg);
+      if (notBuilt) {
+        console.warn(`[game] subsystem "${name}" not built yet — ${msg}`);
+      } else {
+        this.broken.push({ name, error: msg });
+        console.error(`[game] subsystem "${name}" FAILED TO LOAD (it exists but threw):`, err);
+      }
       return null;
     }
   }
