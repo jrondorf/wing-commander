@@ -170,7 +170,10 @@ export const SHOT_SCENES = {
       // read against the sky, and the ember preset is currently far too busy.
       game.world?.setPreset?.('nebula-teal');
       const p = game.spawnShip('confed_vampire', { faction: 'confed', position: V(0, 0, 0), isPlayer: true, seed: 3 });
-      if (p?.body) p.body.controls.throttle = 0.85;
+      // Cruise, not full throttle. At 0.85 the player covered ~4 km during warm-up
+      // and ended up inside a bright nebula core, which washed the backdrop out to
+      // flat cyan — the shot composes against the volume it starts in.
+      if (p?.body) p.body.controls.throttle = 0.45;
       usePlayerCockpit(game);
       spawnWing(game, 'confed_vampire', 'confed', V(-160, 30, -200), 1);
       spawnWing(game, 'alien_manta', 'nephilim', V(220, -60, -900), 3, 140);

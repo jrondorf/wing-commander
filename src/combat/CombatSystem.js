@@ -199,6 +199,29 @@ export function createCombatSystem(engine) {
     }
   }
 
+  /**
+   * A bolt connected. Route it to the damage model and publish the event vfx and
+   * audio listen for. Note the field rename: projectiles report `damage`, the
+   * damage model takes `amount`.
+   */
+  function handleHit(h) {
+    damage.queue({
+      target: h.target,
+      shooter: h.shooter,
+      weapon: h.weapon,
+      amount: h.damage,
+      kind: h.kind === 'bolt' ? 'gun' : (h.kind ?? 'gun'),
+      point: h.point,
+      normal: h.normal,
+      direction: h.direction,
+    });
+    events?.emit('weapon:hit', {
+      target: h.target, shooter: h.shooter, weapon: h.weapon,
+      amount: h.damage, point: h.point.clone(), normal: h.normal.clone(),
+      kind: h.kind,
+    });
+  }
+
   function update(dt, eng) {
     const game = eng.game;
     const player = game?.player ?? null;
@@ -239,7 +262,16 @@ export function createCombatSystem(engine) {
     // meant ctx.hulls was undefined, so every bolt flew straight through every
     // ship and nothing could ever be damaged.
     refreshHulls(game);
-    pool.update(dt, { hulls, softTargets: missiles.missiles ?? null });
+    pool.update(dt, {
+      hulls,
+      softTargets: missiles.missiles ?? null,
+      onHit: handleHit,
+      onMissileHit: (soft, amount, shooter, point) => {
+        // Point defence killing a missile or decoy in flight.
+        missiles.kill?.(soft, { shooter, point });
+        events?.emit('weapon:hit', { target: null, shooter, amount, point, kind: 'intercept' });
+      },
+    });
     missiles.update?.(dt, eng);
     damage.update?.(dt, eng);
     targeting.update?.(dt, eng);

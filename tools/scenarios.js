@@ -18,8 +18,8 @@ export const SCENARIOS = [
   },
   {
     id: 'cockpit-combat',
-    t: 14,
-    desc: 'Cockpit view mid-dogfight, guns firing, target locked, enemy crossing. Judges: the actual gameplay frame — the one that must beat Prophecy.',
+    t: 6,
+    desc: 'Cockpit view mid-dogfight, guns firing, target locked, enemy crossing. Judges: the actual gameplay frame — the one that must beat Prophecy. NB: the skybox is direction-dependent, so t controls which part of the nebula the ship happens to face; longer warm-ups have rotated it into a bright core and blown the frame out.',
   },
   {
     id: 'dogfight-chase',

@@ -122,9 +122,13 @@ async function main() {
   const hideObjects = (names) => {
     const wanted = new Set(names);
     let hidden = 0;
-    game.engine.scene.traverse((o) => {
-      if (o.name && wanted.has(o.name)) { o.visible = false; hidden++; }
-    });
+    // Both scenes: the cockpit lives in its own scene with its own camera, and
+    // hiding by name is useless if it only reaches half the graph.
+    for (const sc of [game.engine.scene, game.engine.cockpitScene]) {
+      sc.traverse((o) => {
+        if (o.name && wanted.has(o.name)) { o.visible = false; hidden++; }
+      });
+    }
     console.log(`[diag] hid ${hidden} object(s) matching: ${names.join(',')}`);
   };
 
