@@ -324,10 +324,14 @@ export function createProjectilePool(engine, { capacity = 2048 } = {}) {
       // The bolt trails *behind* the point it has actually reached.
       _pos.set(px[i] - _dir.x * len[i] * 0.5, py[i] - _dir.y * len[i] * 0.5, pz[i] - _dir.z * len[i] * 0.5);
       const r = rad[i];
-      _s.set(r * 2, r * 2, len[i]);
+      _s.set(r * 2.8, r * 2.8, len[i]);
       _m.compose(_pos, _q, _s);
       coreMesh.setMatrixAt(k, _m);
-      _s.set(r * 5.5, r * 5.5, len[i] * 1.35);
+      // Halo is what actually reads at combat range. At 5.5x the bolt was a
+      // hairline in frame even with 26 rounds in flight; Wing Commander's tracers
+      // were unapologetically chunky because a dogfight has to be legible at a
+      // glance, not physically scaled.
+      _s.set(r * 9.0, r * 9.0, len[i] * 1.5);
       _m.compose(_pos, _q, _s);
       haloMesh.setMatrixAt(k, _m);
       const o = k * 3;
