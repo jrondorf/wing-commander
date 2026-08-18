@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>audio self-test</title>
+<style>
+  body { background:#0b0f14; color:#c8d4e0; font:13px/1.5 ui-monospace, Menlo, Consolas, monospace; padding:20px; }
+  .ok { color:#6fe08a; } .fail { color:#ff6b5c; }
+  table { border-collapse:collapse; margin-top:12px; }
+  td, th { padding:2px 12px 2px 0; text-align:left; }
+  th { color:#7fe4ff; border-bottom:1px solid #24313f; }
+</style>
+</head>
+<body>
+<h1>Wing Commander — procedural audio self-test</h1>
+<div id="status">rendering…</div>
+<div id="out"></div>
+<script type="module">
+  import { runSelfTest } from './selftest.js';
+  const status = document.getElementById('status');
+  const out = document.getElementById('out');
+  try {
+    const report = await runSelfTest();
+    window.__AUDIO_TEST__ = report;
+    status.innerHTML = `<b class="${report.ok ? 'ok' : 'fail'}">${report.passed}/${report.total} passed</b> in ${report.ms} ms`;
+    const rows = report.results.map((r) => `<tr>
+      <td class="${r.ok ? 'ok' : 'fail'}">${r.ok ? 'PASS' : 'FAIL'}</td>
+      <td>${r.name}</td><td>peak ${r.peak ?? '-'}</td><td>rms ${r.rms ?? '-'}</td>
+      <td>dc ${r.dc ?? '-'}</td><td>clip ${r.clipped ?? '-'}</td>
+      <td class="fail">${(r.errors ?? []).join('; ')}</td></tr>`).join('');
+    out.innerHTML = `<table><tr><th></th><th>sound</th><th>peak</th><th>rms</th><th>dc</th><th>clipped</th><th>errors</th></tr>${rows}</table>`;
+  } catch (err) {
+    window.__AUDIO_TEST__ = { ok: false, error: String(err?.stack ?? err), results: [] };
+    status.innerHTML = `<b class="fail">harness error: ${err?.message ?? err}</b>`;
+  }
+</script>
+</body>
+</html>

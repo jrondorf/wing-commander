@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ship silhouette test</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { background: #fff; color: #111; font: 12px/1.2 ui-monospace, Menlo, monospace; }
+      #wrap { position: relative; }
+      #sil { display: block; }
+      .lbl {
+        position: absolute; letter-spacing: .06em; text-transform: uppercase;
+        color: #999; pointer-events: none;
+      }
+      .name { font-size: 15px; color: #111; font-weight: 700; letter-spacing: .1em; }
+      .dim  { font-size: 11px; color: #888; }
+      #err { position: absolute; top: 0; left: 0; color: #c00; white-space: pre; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <div id="wrap"><canvas id="sil"></canvas><div id="err"></div></div>
+    <script type="module" src="/src/ships/silhouette.js"></script>
+  </body>
+</html>
