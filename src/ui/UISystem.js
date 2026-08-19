@@ -40,6 +40,7 @@ import { createCredits } from './screens/Credits.js';
 import { createComms } from './hud/Comms.js';
 import { createObjectives } from './hud/Objectives.js';
 import { createCommandMenu } from './hud/CommandMenu.js';
+import { createTacMap } from './hud/TacMap.js';
 import { normalizeMission, normalizeResult, normObjective, attachWingmanRoster } from './missiondata.js';
 
 const OPTIONS_KEY = 'wc.options.v1';
@@ -106,7 +107,8 @@ export function createUISystem(engine, rootEl) {
   const comms = createComms(engine, api());
   const objectives = createObjectives();
   const cmdMenu = createCommandMenu(engine, api());
-  flightLayer.append(comms.root, objectives.root, cmdMenu.root);
+  const tacMap = createTacMap(engine);
+  flightLayer.append(comms.root, objectives.root, cmdMenu.root, tacMap.root);
 
   const pauseEl = el('div', {
     style: {
@@ -442,6 +444,10 @@ export function createUISystem(engine, rootEl) {
         if (stack.length) return; // screens run on their own loop
         const input = (eng ?? engine)?.input;
         if (input?.pressed?.('commsMenu')) cmdMenu.toggle();
+        if (input?.pressed?.('tacMap')) {
+          tacMap.toggle();
+          sfx('ui.mfd');
+        }
         if (input?.pressed?.('pause')) {
           const e2 = eng ?? engine;
           e2.paused = !e2.paused;
@@ -450,6 +456,7 @@ export function createUISystem(engine, rootEl) {
         }
         cmdMenu.update();
         comms.update(dt);
+        tacMap.update(dt);
         if (missionRunning) { missionClock += dt; tally.time = missionClock; }
         if (debug.size) demoTick(dt);
       },
@@ -466,6 +473,7 @@ export function createUISystem(engine, rootEl) {
         for (const off of unsubs) { try { off(); } catch { /* already gone */ } }
         unsubs.length = 0;
         engine?.removeSystem?.(inputPatch);
+        tacMap.dispose();
         for (const s of Object.values(screens)) s.dispose?.();
         clear(root);
         root.remove();

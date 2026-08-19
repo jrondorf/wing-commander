@@ -74,6 +74,11 @@ const NAV_LOCK_RANGE = 6000;
 const WRECK_LINGER = 9;
 /** Engine seconds of idling before autostart gives up waiting for a UI. */
 const AUTOSTART_GRACE = 3;
+/** Throttle a mission launches the player at. Cruise, not a standing start. */
+const LAUNCH_THROTTLE = 0.55;
+
+const _launchFwd = new THREE.Vector3();
+const _launchQuat = new THREE.Quaternion();
 
 const ALLIED = {
   confed: new Set(['confed', 'militia', 'civilian', 'terran']),
@@ -763,6 +768,30 @@ export function createMissionSystem(engine, opts = {}) {
     }
   }
 
+  /**
+   * Put the ship on the step at cruise.
+   *
+   * `FlightBody` defaults `controls.throttle` to 0 and nothing was setting it, so
+   * every mission began with the player motionless in space — arrows and stick
+   * did nothing visible, the nav point never got closer, and the first thing a
+   * new pilot had to discover unaided was that `=` exists. Wing Commander launched
+   * you already moving; so do we.
+   */
+  function setLaunchThrottle(ship) {
+    const body = ship?.body;
+    if (!body?.controls) return;
+    if (body.controls.throttle > 0.01) return;   // a caller already chose one
+    body.controls.throttle = LAUNCH_THROTTLE;
+    // Match the airframe to the command so the speed tape does not spend the
+    // first ten seconds of every mission winding up from zero.
+    const cruise = LAUNCH_THROTTLE * (body.tuning?.maxSpeed ?? 0);
+    if (cruise > 0 && body.velocity?.set && body.speed !== undefined && body.speed < 1) {
+      const fwd = _launchFwd.set(0, 0, -1).applyQuaternion(ship.group?.quaternion ?? _launchQuat.identity());
+      body.velocity.copy(fwd.multiplyScalar(cruise));
+      body.speed = cruise;
+    }
+  }
+
   function ensurePlayer() {
     if (!game) return null;
     if (game.player) {
@@ -774,6 +803,7 @@ export function createMissionSystem(engine, opts = {}) {
         body.velocity?.set?.(0, 0, 0);
         playerShip.group?.position?.set?.(p.x, p.y, p.z);
       }
+      setLaunchThrottle(playerShip);
       return playerShip;
     }
     playerShip = game.spawnShip?.(def.player.ship, {
@@ -784,6 +814,7 @@ export function createMissionSystem(engine, opts = {}) {
       seed: (hashSeed(`${def.id}:player`) ^ seed) >>> 0,
     }) ?? null;
     if (playerShip) owned.set(playerShip, { ship: playerShip, deadAt: -1 });
+    setLaunchThrottle(playerShip);
     return playerShip;
   }
 

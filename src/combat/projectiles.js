@@ -46,6 +46,36 @@ const _s = new THREE.Vector3();
 const _pos = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _p0 = new THREE.Vector3();
+const _camPos = new THREE.Vector3();
+const _bufSize = new THREE.Vector2();
+
+/*
+ * ---------------------------------------------------------------------------
+ * Tracer legibility
+ * ---------------------------------------------------------------------------
+ * A particle bolt leaves the muzzle at 1500 m/s and an ion cannon at 3000. At
+ * 60 fps that is 25-50 m of travel between one rendered frame and the next,
+ * against a bolt 12-26 m long: the stream renders as isolated dots with gaps
+ * two to four times their own length, and the first frame a shot is ever drawn
+ * it is already 25-50 m clear of the gun. Measured in the cockpit, a five-second
+ * burst put nine live bolts within 1.4 px of the reticle centre and not one
+ * pixel of tracer anywhere in frame.
+ *
+ * The fix is the same one every gun camera has: draw the *swept segment*, not
+ * the projectile. Each bolt is stretched over the ground it actually covered
+ * this frame, so consecutive frames abut and the burst reads as a continuous
+ * line of fire, and its cross-section is floored in *screen* space so a tracer
+ * at 3 km is still a few pixels wide instead of vanishing.
+ *
+ * Only the rendering changes. `rad[i]` still drives collision, so none of this
+ * moves a hit by a millimetre.
+ */
+/** Longest streak a single frame may draw, metres. Caps a post-stall dt spike. */
+const MAX_STREAK = 320;
+/** Floor on the core's on-screen radius, in pixels at the current framebuffer. */
+const MIN_CORE_PX = 1.4;
+/** Floor on the halo's on-screen radius. This is what actually reads at range. */
+const MIN_HALO_PX = 4.0;
 
 /** Elongated bipyramid along +Z, unit length, radius 0.5. 2*seg triangles. */
 function boltGeometry(seg = 8) {
@@ -104,6 +134,8 @@ export function createProjectilePool(engine, { capacity = 2048 } = {}) {
   const vz = new Float32Array(N);
   const life = new Float32Array(N);
   const travelled = new Float32Array(N);
+  /** Ground covered by this bolt during the frame just integrated — the streak. */
+  const swept = new Float32Array(N);
   const dmg = new Float32Array(N);
   const rad = new Float32Array(N);
   const len = new Float32Array(N);
@@ -193,6 +225,7 @@ export function createProjectilePool(engine, { capacity = 2048 } = {}) {
 
     life[i] = w.lifetime ?? Math.max(0.2, w.range / Math.max(1, speed));
     travelled[i] = 0;
+    swept[i] = 0;
     dmg[i] = o.damage ?? w.damage;
     rad[i] = w.radius;
     len[i] = w.boltLength ?? 12;
@@ -302,8 +335,12 @@ export function createProjectilePool(engine, { capacity = 2048 } = {}) {
       }
 
       // --- no hit: advance -------------------------------------------------
+      const step = _p0.distanceTo(_p1);
       px[i] = _p1.x; py[i] = _p1.y; pz[i] = _p1.z;
-      travelled[i] += _p0.distanceTo(_p1);
+      travelled[i] += step;
+      // The streak spans this frame's travel, so frame N's tail meets frame
+      // N-1's nose and a burst draws as one unbroken line rather than beads.
+      swept[i] = step;
       life[i] -= dt;
       if (life[i] <= 0) { stats.expired++; release(i); }
     }
@@ -312,26 +349,58 @@ export function createProjectilePool(engine, { capacity = 2048 } = {}) {
     stats.live = count;
   }
 
-  /** Write the instance matrices. One pass, no allocation. */
+  /**
+   * Write the instance matrices. One pass, no allocation.
+   *
+   * Each bolt is drawn as the segment it swept during the frame just integrated,
+   * floored at its own length, and its cross-section is floored in screen space
+   * so distance never erases it. See the constants at the top of this file for
+   * the measurement behind those two rules.
+   */
   function syncInstances() {
     const n = count;
+    if (n === 0) { coreMesh.count = 0; haloMesh.count = 0; return; }
+
+    // Screen-space floor needs to know how many pixels a radian is worth. Both
+    // are read once per frame, and both degrade to "no floor" rather than to a
+    // wrong one if the engine has not published a camera yet.
+    const cam = engine?.camera ?? null;
+    let pxPerRad = 0;
+    if (cam?.isPerspectiveCamera) {
+      cam.getWorldPosition(_camPos);
+      const h = engine?.renderer?.getDrawingBufferSize?.(_bufSize)?.y ?? 0;
+      if (h > 0) pxPerRad = h / (2 * Math.tan((cam.fov * Math.PI) / 360));
+    }
+    // Scale-to-radius is 0.5 (the bipyramid is built at radius 0.5), so the
+    // angular floor is doubled on its way into the scale.
+    const coreFloorAng = pxPerRad > 0 ? (2 * MIN_CORE_PX) / pxPerRad : 0;
+    const haloFloorAng = pxPerRad > 0 ? (2 * MIN_HALO_PX) / pxPerRad : 0;
+
     for (let k = 0; k < n; k++) {
       const i = active[k];
       _dir.set(vx[i], vy[i], vz[i]);
       const sp = _dir.length();
       if (sp > 1e-4) _dir.multiplyScalar(1 / sp); else _dir.set(0, 0, 1);
       _q.setFromUnitVectors(_up, _dir);
-      // The bolt trails *behind* the point it has actually reached.
-      _pos.set(px[i] - _dir.x * len[i] * 0.5, py[i] - _dir.y * len[i] * 0.5, pz[i] - _dir.z * len[i] * 0.5);
+
+      // Streak: from where the bolt was at the start of the frame to where it is
+      // now, never shorter than the bolt itself and never longer than MAX_STREAK.
+      const L = Math.min(MAX_STREAK, Math.max(len[i], swept[i]));
+      // The segment trails *behind* the point the bolt has actually reached.
+      _pos.set(px[i] - _dir.x * L * 0.5, py[i] - _dir.y * L * 0.5, pz[i] - _dir.z * L * 0.5);
+
+      const dist = pxPerRad > 0 ? _pos.distanceTo(_camPos) : 0;
       const r = rad[i];
-      _s.set(r * 2.8, r * 2.8, len[i]);
+      const coreR = Math.max(r * 2.8, dist * coreFloorAng);
+      _s.set(coreR, coreR, L);
       _m.compose(_pos, _q, _s);
       coreMesh.setMatrixAt(k, _m);
       // Halo is what actually reads at combat range. At 5.5x the bolt was a
       // hairline in frame even with 26 rounds in flight; Wing Commander's tracers
       // were unapologetically chunky because a dogfight has to be legible at a
       // glance, not physically scaled.
-      _s.set(r * 9.0, r * 9.0, len[i] * 1.5);
+      const haloR = Math.max(r * 9.0, dist * haloFloorAng);
+      _s.set(haloR, haloR, L * 1.12);
       _m.compose(_pos, _q, _s);
       haloMesh.setMatrixAt(k, _m);
       const o = k * 3;

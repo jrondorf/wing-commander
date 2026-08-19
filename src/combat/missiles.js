@@ -276,6 +276,11 @@ function cachedAssets(engine) {
   return engine?.registry ? engine.registry.get('combat/missile/assets', make) : make();
 }
 
+/** Floor on the motor plume's on-screen radius, in framebuffer pixels. */
+const MIN_PLUME_PX = 2.6;
+const _camPos = new THREE.Vector3();
+const _bufSize = new THREE.Vector2();
+
 // ---------------------------------------------------------------------------
 // the manager
 // ---------------------------------------------------------------------------
@@ -844,6 +849,19 @@ export function createMissileManager(engine, {
   }
 
   function syncInstances() {
+    // A missile body is 3.4 m long and its plume about 2.4 m across. At 2 km that
+    // plume is half a pixel: the shot leaves the rail and is simply gone, which
+    // is most of why "missile away" reads as nothing happening. The plume — not
+    // the body, which stays honestly scaled — is floored in screen space so a
+    // missile in flight is always a visible point of light with a trail behind it.
+    const cam = engine?.camera ?? null;
+    let plumeFloor = 0;
+    if (cam?.isPerspectiveCamera) {
+      cam.getWorldPosition(_camPos);
+      const h = engine?.renderer?.getDrawingBufferSize?.(_bufSize)?.y ?? 0;
+      // Scale-to-radius for the spindle is 0.5, hence the doubling.
+      if (h > 0) plumeFloor = (2 * MIN_PLUME_PX) / (h / (2 * Math.tan((cam.fov * Math.PI) / 360)));
+    }
     let n = 0;
     for (let i = 0; i < missiles.length && n < capacity; i++) {
       const m = missiles[i];
@@ -861,7 +879,11 @@ export function createMissileManager(engine, {
       // Motor plume, behind the body, pulsing while the motor burns.
       const burning = m.fuel > 0 ? 1 : 0.12;
       _tp.copy(m.position).addScaledVector(_tmp, -len * 0.75);
-      _sc.set(rad * 3.4 * burning + 0.2, rad * 3.4 * burning + 0.2, len * (0.9 + burning * 1.6));
+      const natural = rad * 3.4 * burning + 0.2;
+      const plumeR = plumeFloor > 0
+        ? Math.max(natural, _tp.distanceTo(_camPos) * plumeFloor * burning)
+        : natural;
+      _sc.set(plumeR, plumeR, Math.max(len * (0.9 + burning * 1.6), plumeR * 1.6));
       _m4.compose(_tp, _q4, _sc);
       flameMesh.setMatrixAt(n, _m4);
       _col.set(m.spec.color);

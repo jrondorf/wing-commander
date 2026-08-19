@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview --port 4173 --strictPort",
     "shot": "node tools/shoot.mjs",
+    "playtest": "node tools/playtest.mjs --engage",
     "critic": "node tools/shoot.mjs --all"
   },
   "dependencies": {

@@ -343,8 +343,11 @@ export function createVFXSystem(engine, opts = {}) {
     const e = resetEmit();
     e.px = _v3.x + _v.x * 1.6; e.py = _v3.y + _v.y * 1.6; e.pz = _v3.z + _v.z * 1.6;
     e.vx = _v.x * 14; e.vy = _v.y * 14; e.vz = _v.z * 14;
-    e.life = 0.075;
-    e.size0 = 1.5; e.size1 = 4.2;
+    // Bigger and a touch longer-lived than it was: at 0.075 s / 4.2 m the flash
+    // was under five frames of a two-pixel puff on a wingtip, which is to say
+    // invisible. The gun going off has to be legible from the cockpit.
+    e.life = 0.11;
+    e.size0 = 2.6; e.size1 = 7.4;
     e.temp0 = 1; e.tempPow = 0.6;
     e.alpha = 1; e.fadeIn = 0.05; e.fadeOut = 1.2;
     e.drag = 9;
