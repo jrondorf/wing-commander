@@ -270,6 +270,13 @@ pushed much past 2.0 clips to the same white smear, which is how a red hostile, 
 green friendly and an amber target all became one dot on the radar glass. Keep
 symbology emissives under the shoulder; brightness is not the same as legibility.
 
+Additive layers also *stack*, and a chase camera sits 64 m from the hull. Sizing
+a near-field effect for legibility at cockpit range is how a muzzle flash grown
+to 7.4 m — a reasonable-sounding number — became a 94 px white-hot puff that
+combined with the exhaust and haze into a saturated disc over the whole ship in
+`dogfight-chase`. Judge any near-field emitter in an external view before
+trusting a number that looked right from inside the canopy.
+
 **Sins that instantly fail review.** Flat unlit-looking hulls · constant roughness ·
 untextured smooth-shaded primitives · pure `#000` background · aliased HUD text ·
 bloom that whites out the frame · particles that are obvious camera-facing discs ·

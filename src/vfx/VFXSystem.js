@@ -343,11 +343,14 @@ export function createVFXSystem(engine, opts = {}) {
     const e = resetEmit();
     e.px = _v3.x + _v.x * 1.6; e.py = _v3.y + _v.y * 1.6; e.pz = _v3.z + _v.z * 1.6;
     e.vx = _v.x * 14; e.vy = _v.y * 14; e.vz = _v.z * 14;
-    // Bigger and a touch longer-lived than it was: at 0.075 s / 4.2 m the flash
-    // was under five frames of a two-pixel puff on a wingtip, which is to say
-    // invisible. The gun going off has to be legible from the cockpit.
-    e.life = 0.11;
-    e.size0 = 2.6; e.size1 = 7.4;
+    // Deliberately small, and left that way. Enlarging this to make the guns read
+    // from the cockpit was a wrong turn twice over: the muzzles sit on the wings,
+    // outside the canopy's field of view, so it never helped there — and at a
+    // chase camera's 64 m a 7.4 m white-hot puff subtends 94 px and stacked with
+    // the exhaust and haze into a saturated disc over the whole ship. Gunfire
+    // reads from the tracer streaks (see combat/projectiles.js), not from this.
+    e.life = 0.075;
+    e.size0 = 1.5; e.size1 = 4.2;
     e.temp0 = 1; e.tempPow = 0.6;
     e.alpha = 1; e.fadeIn = 0.05; e.fadeOut = 1.2;
     e.drag = 9;

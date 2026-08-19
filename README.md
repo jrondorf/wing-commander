@@ -122,7 +122,7 @@ other rather than tuned in isolation:
   live contacts, vertical-separation stalks, your own heading and world position.
   The sim keeps running while it is up.
 * **Tracers** — bolts are drawn as the segment they swept during the frame, so a
-  burst reads as a continuous line rather than beads 25–50 m apart, and their
+  round reads as a streak instead of a dot hopping 25–50 m per frame, and their
   cross-section is floored in screen space so a tracer at 3 km is still visible.
 
 ## Status

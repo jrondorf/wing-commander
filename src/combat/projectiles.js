@@ -63,9 +63,13 @@ const _bufSize = new THREE.Vector2();
  *
  * The fix is the same one every gun camera has: draw the *swept segment*, not
  * the projectile. Each bolt is stretched over the ground it actually covered
- * this frame, so consecutive frames abut and the burst reads as a continuous
- * line of fire, and its cross-section is floored in *screen* space so a tracer
- * at 3 km is still a few pixels wide instead of vanishing.
+ * this frame, so one round's successive frames abut and it reads as a streak
+ * instead of a dot hopping 30 m at a time. Its cross-section is floored in
+ * *screen* space too, so a tracer at 3 km is a few pixels wide instead of
+ * vanishing. Measured broadside, a burst now reads as a line of bright dashes
+ * crossing the frame — the gaps between *separate rounds* are real (8 rounds a
+ * second at 1900 m/s is one every 240 m) and are meant to be there; what is
+ * gone is the gap inside a single round's own trace.
  *
  * Only the rendering changes. `rad[i]` still drives collision, so none of this
  * moves a hit by a millimetre.
