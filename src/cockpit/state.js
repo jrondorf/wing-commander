@@ -168,7 +168,15 @@ export function createCockpitState(engine, { seed = 4711 } = {}) {
     incomingBearing: null,
     /** True while a hostile has a missile lock on us. */
     lockedBy: 0,
-    nav: { name: 'NAV 1', distance: 0, index: 1, total: 4, hasNav: false },
+    nav: {
+      name: 'NAV 1', distance: 0, index: 1, total: 4, hasNav: false,
+      /**
+       * World position of the active nav point, or null when the mission has not
+       * published one. The HUD projects this to draw the waypoint marker, which is
+       * the only thing in flight that says *which way* rather than *how far*.
+       */
+      position: null,
+    },
     starDir: new THREE.Vector3(0.6, 0.4, -0.7).normalize(),
     starColor: new THREE.Color(0.82, 0.88, 1),
 
@@ -481,6 +489,10 @@ export function createCockpitState(engine, { seed = 4711 } = {}) {
     st.lockedBy = Math.max(0, st.lockedBy - dt);
 
     // ---- contacts ----------------------------------------------------------
+    // Every contact carries enough to be *drawn*, not just plotted: the HUD needs
+    // a world position to project, an angular radius to size a box by, and a
+    // closure rate. Resolving all of it here keeps the radar and the HUD reading
+    // one set of numbers — two consumers must never disagree inside a frame.
     st.contacts.length = 0;
     const ships = game?.ships ?? [];
     _q.copy(st.quaternion).invert();
@@ -491,16 +503,36 @@ export function createCockpitState(engine, { seed = 4711 } = {}) {
       const d = _a.length();
       if (d < 1e-3 || d > 30000) continue;
       let c = contactPool[st.contacts.length];
-      if (!c) c = contactPool[st.contacts.length] = { ship: null, dir: new THREE.Vector3(), distance: 0, hostile: false, capital: false, isTarget: false };
+      if (!c) {
+        c = contactPool[st.contacts.length] = {
+          ship: null, dir: new THREE.Vector3(), position: new THREE.Vector3(),
+          velocity: new THREE.Vector3(), distance: 0, closure: 0, radius: 10,
+          angularRadius: 0.01, hostile: false, capital: false, isTarget: false,
+          wingman: false, alive: true, name: '', faction: '',
+        };
+      }
       c.ship = s;
+      c.position.copy(s.group.position);
       c.dir.copy(_a).divideScalar(d).applyQuaternion(_q);
       c.distance = d;
+      const cv = s.body?.velocity;
+      c.velocity.copy(cv?.isVector3 ? cv : _b.set(0, 0, 0));
+      _b.copy(c.velocity).sub(st.velocity);
+      c.closure = -_b.dot(_a) / d;
+      c.radius = shipRadius(s);
+      c.angularRadius = Math.atan2(c.radius, d);
       c.hostile = isHostile(player ?? { faction: 'confed' }, s);
       c.capital = isCapitalShip(s);
       c.isTarget = s === tShip;
+      c.wingman = !!s.wingman;
+      c.name = displayName(s);
+      c.faction = s.faction ?? 'unknown';
       c.alive = s.alive !== false;
       st.contacts.push(c);
     }
+    // Nearest first: the HUD caps how many boxes it draws, and the ones that
+    // matter in a knife fight are the close ones.
+    st.contacts.sort((p, q) => p.distance - q.distance);
 
     // ---- nav / autopilot ---------------------------------------------------
     const nav = game?.mission?.nav ?? game?.mission?.currentNav ?? null;
@@ -509,12 +541,22 @@ export function createCockpitState(engine, { seed = 4711 } = {}) {
       st.nav.name = String(nav.name ?? `NAV ${num(nav.index, 1)}`).toUpperCase();
       st.nav.index = num(nav.index, 1);
       st.nav.total = num(nav.total, 1);
-      st.nav.distance = nav.position?.isVector3 ? nav.position.distanceTo(st.position) : num(nav.distance, 0);
+      const np = nav.position;
+      if (np && Number.isFinite(np.x) && Number.isFinite(np.y) && Number.isFinite(np.z)) {
+        if (!st.nav.position) st.nav.position = new THREE.Vector3();
+        st.nav.position.set(np.x, np.y, np.z);
+        _a.copy(st.nav.position).sub(st.position);
+        st.nav.distance = _a.length();
+      } else {
+        st.nav.position = null;
+        st.nav.distance = num(nav.distance, 0);
+      }
     } else {
       st.nav.hasNav = false;
       st.nav.name = 'NAV 2 · TALON RENDEZVOUS';
       st.nav.index = 2;
       st.nav.total = 4;
+      st.nav.position = null;
       // A slowly closing placeholder so the readout is never a dead constant.
       st.nav.distance = 41_800 - (st.time * st.speed);
       if (st.nav.distance < 4000) st.nav.distance = 4000;

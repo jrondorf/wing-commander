@@ -27,6 +27,7 @@ npm run build      # -> dist/
 | `F` / `B` | Cycle view / look back |
 | `1` `2` `3` | Power to guns / shields / engines |
 | `,` `.` `/` | Shields forward / aft / balanced |
+| `V` | Tactical map |
 | `C` | Comms · `N` autopilot · `P` pause |
 
 ## Architecture
@@ -74,6 +75,22 @@ as "done".
 assignment, writing the answer key to a file the reviewer never sees.
 `tools/CRITIC_BRIEF.md` is the scoring rubric and the automatic-fail list.
 
+### The playtest harness
+
+The capture harness composes a scene and photographs it, which is the right way to
+judge art and the wrong way to find out whether the game is playable — no scenario
+ever presses a key, so a build where the player spawned at zero throttle and no
+contact but the locked one had any symbology passed every capture.
+
+```bash
+npm run playtest        # menu -> briefing -> cockpit, then engage and open fire
+```
+
+It plays the real flow, then asserts on what the pilot can actually see: contacts
+resolved, target locked, projectiles alive, nav point steerable, tactical plot
+opening. Exits non-zero when any of those is missing. Frames land in
+`captures/playtest/`.
+
 ### Diagnostic switches
 
 Append to any URL. These exist because guessing at a dark frame wasted more time on
@@ -86,6 +103,27 @@ this project than anything else.
 | `?dropmaps=map,aoMap` | Detach named texture slots and report each one's average colour |
 | `?post=tonemap.exposure=4` | Override any post-processing setting live |
 | `?nopost=1` | Bypass the post stack entirely |
+
+## Reading the fight
+
+Four displays answer "where is everything", and they are calibrated against each
+other rather than tuned in isolation:
+
+* **HUD contact symbology** — every ship in the frame gets a corner box, hostiles
+  red with a centre pip, friendlies green; the locked target keeps the full
+  bracket, shield ring and data block. Boxes are floored at a legible size, because
+  a 22 m fighter at 2 km is nine pixels of dark hull against a dark nebula and is
+  not findable by eye. Hostiles outside the frame become edge carets.
+* **Radar globe** — the glass is scaled to an 8 km scope, not to the ship's 24 km
+  detection range; anything between the two pins just inside the shell, dimmed.
+  Contact colours are held below the tone-map shoulder so friend, foe and target
+  stay distinguishable instead of all clipping to white.
+* **Tactical plot (`V`)** — ego-centric north-up plan view with the nav course,
+  live contacts, vertical-separation stalks, your own heading and world position.
+  The sim keeps running while it is up.
+* **Tracers** — bolts are drawn as the segment they swept during the frame, so a
+  round reads as a streak instead of a dot hopping 25–50 m per frame, and their
+  cross-section is floored in screen space so a tracer at 3 km is still visible.
 
 ## Status
 

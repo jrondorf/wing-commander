@@ -29,7 +29,7 @@ import { createCockpitState } from './state.js';
 import { createCrtMaterial, createTargetVdu, createDamageVdu, blackTexture } from './mfd.js';
 import { createRadarGlobe } from './radar.js';
 import { createHudPainter } from './hud.js';
-import { MFD, THROTTLE, STICK, HUD_INTENSITY } from './layout.js';
+import { MFD, THROTTLE, STICK, HUD_INTENSITY, HUD_BACKING, HUD_BACKING_PX } from './layout.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const damp = (a, b, rate, dt) => a + (b - a) * (1 - Math.exp(-rate * dt));
@@ -148,7 +148,74 @@ export function createCockpitSystem(engine, opts = {}) {
   // stamp zero motion over the entire screen and silently disable motion blur and
   // TAA reprojection for the world behind it.
   hudMesh.userData.noVelocity = true;
-  root.add(hudMesh);
+
+  /**
+   * Backing pass for the symbology.
+   *
+   * A combiner glass is additive, and that is correct right up until the sky
+   * behind it is already at 1.0. Flying toward the primary star through a nebula
+   * core, 18 % of the upper frame measured fully clipped: adding cyan to white
+   * produces white, and the entire HUD — reticle, contact boxes, speed tape —
+   * simply was not there. This quad renders one layer under the additive one and
+   * lays down a dilated dark wash wherever symbology is about to be drawn, so
+   * there is always something for the glow to sit on.
+   *
+   * The dilation radius matters more than the opacity. A 1 px keyline round a
+   * 2 px stroke is thinner than the bloom the blown sky spills sideways, so the
+   * glare simply closed over it; `HUD_BACKING_PX` opens a gutter wide enough that
+   * it cannot. Nine taps of the HUD texture's own alpha, nothing else sampled.
+   */
+  const hudShadowMat = new THREE.ShaderMaterial({
+    name: 'hud-backing',
+    uniforms: {
+      tHud: { value: hudTex },
+      uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
+      uStrength: { value: HUD_BACKING },
+      uSpread: { value: HUD_BACKING_PX },
+    },
+    vertexShader: /* glsl */`
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`,
+    fragmentShader: /* glsl */`
+precision highp float;
+uniform sampler2D tHud;
+uniform vec2 uTexel;
+uniform float uStrength;
+uniform float uSpread;
+varying vec2 vUv;
+
+/* Max-filter dilate. Two rings: the inner one keeps the keyline solid against
+   the stroke, the outer one is what actually holds bloom off. */
+void main() {
+  vec2 s1 = uTexel * uSpread;
+  vec2 s2 = uTexel * uSpread * 2.0;
+  float a = texture2D(tHud, vUv).a;
+  a = max(a, texture2D(tHud, vUv + vec2( s1.x,  s1.y)).a);
+  a = max(a, texture2D(tHud, vUv + vec2(-s1.x,  s1.y)).a);
+  a = max(a, texture2D(tHud, vUv + vec2( s1.x, -s1.y)).a);
+  a = max(a, texture2D(tHud, vUv + vec2(-s1.x, -s1.y)).a);
+  a = max(a, texture2D(tHud, vUv + vec2( s2.x,   0.0)).a);
+  a = max(a, texture2D(tHud, vUv + vec2(-s2.x,   0.0)).a);
+  a = max(a, texture2D(tHud, vUv + vec2(  0.0,  s2.y)).a);
+  a = max(a, texture2D(tHud, vUv + vec2(  0.0, -s2.y)).a);
+  if (a <= 0.004) discard;
+  gl_FragColor = vec4(0.0, 0.006, 0.011, a * uStrength);
+}`,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.FrontSide,
+  });
+  const hudShadow = new THREE.Mesh(hudMesh.geometry, hudShadowMat);
+  hudShadow.name = 'hud-backing';
+  hudShadow.renderOrder = 99;
+  hudShadow.frustumCulled = false;
+  hudShadow.userData.noVelocity = true;
+  root.add(hudShadow, hudMesh);
 
   // ---- lighting -----------------------------------------------------------
   // The cockpit scene is separate from the world scene and therefore has no
@@ -230,6 +297,8 @@ export function createCockpitSystem(engine, opts = {}) {
     hudMat.map.magFilter = THREE.LinearFilter;
     hudMat.map.generateMipmaps = false;
     hudMat.needsUpdate = true;
+    hudShadowMat.uniforms.tHud.value = hudMat.map;
+    hudShadowMat.uniforms.uTexel.value.set(1 / w, 1 / h);
   }
 
   function placeHudQuad() {
@@ -238,6 +307,8 @@ export function createCockpitSystem(engine, opts = {}) {
     const h = 2 * d * Math.tan((cam.fov * Math.PI) / 360);
     hudMesh.scale.set(h * cam.aspect, h, 1);
     hudMesh.position.set(0, 0, -d);
+    hudShadow.scale.copy(hudMesh.scale);
+    hudShadow.position.copy(hudMesh.position);
   }
 
   /** Star direction/colour drives both the key light and the canopy specular. */
@@ -415,6 +486,7 @@ export function createCockpitSystem(engine, opts = {}) {
     hudMesh.geometry.dispose();
     hudMat.map?.dispose();
     hudMat.dispose();
+    hudShadowMat.dispose();
     leftMat.dispose();
     rightMat.dispose();
     glassMat.dispose();

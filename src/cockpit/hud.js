@@ -30,6 +30,19 @@ const RED = '#ff6a52';
 const AMBER = '#ffc061';
 const GREEN = '#8dffb0';
 
+/** Contacts further out than this get no box — beyond it they are not tactical. */
+const CONTACT_RANGE = 14000;
+/** Range under which a contact box also carries its slant range. */
+const CONTACT_LABEL_RANGE = 9000;
+/** Hostiles nearer than this get an edge caret when they leave the frame. */
+const THREAT_CARET_RANGE = 12000;
+const MAX_CONTACT_BOXES = 18;
+const MAX_CONTACT_LABELS = 8;
+const MAX_CONTACT_CARETS = 6;
+/** Floor on the half-size of a contact box, in 900 px-tall units. */
+const CONTACT_MIN_HALF = 11;
+const CORNERS = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const R = Math.round;
@@ -268,17 +281,114 @@ export function createHudPainter() {
   }
 
   /** Caret at the frame edge pointing at a target outside the field of view. */
-  function drawOffscreenCaret(x, y, cx, cy, col) {
+  function drawOffscreenCaret(x, y, cx, cy, col, { alpha = 1, scale = 1 } = {}) {
     const m = 54 * s;
     const px = Math.min(W - m, Math.max(m, x));
     const py = Math.min(H * HUD_FLOOR - m, Math.max(m, y));
     const ang = Math.atan2(py - cy, px - cx);
-    const r = 22 * s;
+    const r = 22 * s * scale;
     poly([
       px + Math.cos(ang) * r, py + Math.sin(ang) * r,
       px + Math.cos(ang + 2.5) * r, py + Math.sin(ang + 2.5) * r,
       px + Math.cos(ang - 2.5) * r, py + Math.sin(ang - 2.5) * r,
-    ], { color: col, width: 2.2, close: true });
+    ], { color: col, width: 2.2, close: true, alpha });
+  }
+
+  /**
+   * Waypoint marker for the active nav point.
+   *
+   * The nav block in the top-right says *how far*; without this the pilot has no
+   * way to learn *which way*, and a 47 km leg becomes a random walk. On screen it
+   * is a diamond-in-a-circle; off screen it becomes an edge caret, so the answer
+   * to "where am I going" is always one glance and never a menu.
+   */
+  function drawNavMarker(state, project, cx, cy) {
+    const nav = state.nav;
+    if (!nav?.hasNav || !nav.position) return;
+    const out = { x: 0, y: 0 };
+    const floor = H * HUD_FLOOR;
+    const inFront = project(nav.position, out);
+    const onScreen = inFront && out.x > 0 && out.x < W && out.y > 0 && out.y < floor;
+    const col = AMBER;
+    if (onScreen) {
+      const r = 13 * s;
+      arc(out.x, out.y, r, 0, Math.PI * 2, { color: col, width: 1.8, alpha: 0.85 });
+      poly([out.x, out.y - r * 0.5, out.x + r * 0.5, out.y, out.x, out.y + r * 0.5, out.x - r * 0.5, out.y],
+        { color: col, width: 1.6, alpha: 0.85, close: true });
+      text(`${fmtRange(Math.max(0, nav.distance))}m`, out.x, out.y + r + 16 * s,
+        { size: 12, color: col, align: 'center', track: 0.04, alpha: 0.8, font: FONT_MONO });
+    } else {
+      drawOffscreenCaret(out.x, out.y, cx, cy, col, { alpha: 0.55, scale: 0.75 });
+    }
+  }
+
+  /**
+   * Symbology for every contact on the scope — not just the locked one.
+   *
+   * This is the difference between a dogfight and an empty sky. A 22 m fighter at
+   * 2 km subtends 0.011 rad; through a 58 deg frame that is nine pixels of dark
+   * hull against a dark nebula, and it is simply not findable by eye. Wing
+   * Commander drew a box round every contact for exactly this reason, so the
+   * pilot tracks *symbols* and the hull underneath is confirmation, not search.
+   *
+   * The box is therefore floored at a legible size rather than scaled honestly
+   * all the way down, and anything outside the frame becomes an edge caret so a
+   * bandit is never simply absent from the display.
+   */
+  function drawContacts(state, project) {
+    const list = state.contacts;
+    if (!list?.length) return;
+    const out = { x: 0, y: 0 };
+    const floor = H * HUD_FLOOR;
+    const ppr = num(state.pixelsPerRadian, H);
+    // Carets are stacked around the frame edge; cap the count so a wing of
+    // twelve does not turn the border into a picket fence.
+    let carets = 0;
+    let boxes = 0;
+
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (!c || c.alive === false || c.isTarget) continue;   // the target gets the full bracket
+      if (c.distance > CONTACT_RANGE && !c.capital) continue;
+      const col = c.hostile ? RED : c.faction === 'neutral' ? CY : GREEN;
+      const inFront = project(c.position, out);
+      const onScreen = inFront && out.x > 0 && out.x < W && out.y > 0 && out.y < floor;
+
+      if (onScreen) {
+        if (boxes >= MAX_CONTACT_BOXES) continue;
+        boxes++;
+        // Floored, then capped: a capital ship filling the frame should not draw
+        // a box the size of the canopy.
+        const half = Math.min(H * 0.30, Math.max(CONTACT_MIN_HALF * s, c.angularRadius * ppr * 1.3));
+        const alpha = c.hostile ? 0.95 : 0.7;
+        // Open corners, not a closed rectangle: it reads as symbology rather than
+        // as a solid object and never hides the hull it is drawn around.
+        const k = Math.max(4 * s, half * 0.42);
+        for (const [sx, sy] of CORNERS) {
+          poly([
+            out.x + sx * half - sx * k, out.y + sy * half,
+            out.x + sx * half, out.y + sy * half,
+            out.x + sx * half, out.y + sy * half - sy * k,
+          ], { color: col, width: 1.7, alpha });
+        }
+        // Hostiles get a centre pip so they are separable from a friendly box at
+        // a glance, in the frame's periphery, without reading any text.
+        if (c.hostile) {
+          const r = Math.max(2 * s, half * 0.16);
+          poly([out.x, out.y - r, out.x + r, out.y, out.x, out.y + r, out.x - r, out.y],
+            { color: col, width: 1.4, alpha, close: true });
+        }
+        if (c.distance < CONTACT_LABEL_RANGE && boxes <= MAX_CONTACT_LABELS) {
+          text(`${fmtRange(c.distance)}`, out.x, out.y + half + 15 * s,
+            { size: 12, color: col, align: 'center', track: 0.04, alpha: alpha * 0.85, font: FONT_MONO });
+        }
+      } else if (c.hostile && c.distance < THREAT_CARET_RANGE && carets < MAX_CONTACT_CARETS) {
+        carets++;
+        // `project` already mirrors a point behind the camera, so the caret points
+        // the way the pilot has to turn without any further correction here.
+        drawOffscreenCaret(out.x, out.y, W * 0.5, floor * 0.5, col, { alpha: 0.75, scale: 0.62 });
+      }
+    }
   }
 
   // ------------------------------------------------------------- fixed panels
@@ -464,12 +574,24 @@ export function createHudPainter() {
 
     drawAttitude(state, cx, cy);
 
+    // ---- every other contact ----------------------------------------------
+    // Drawn before the target so the locked bracket always reads on top of a
+    // wingman box that happens to overlap it.
+    drawContacts(state, project);
+
+    // ---- nav waypoint ------------------------------------------------------
+    drawNavMarker(state, project, cx, cy);
+
     // ---- target -----------------------------------------------------------
     const t = state.target;
     if (t) {
       const inFront = project(t.position, out);
       const col = t.hostile ? RED : GREEN;
-      if (inFront && out.x > -200 * s && out.x < W + 200 * s && out.y > -200 * s && out.y < H + 200 * s) {
+      // The glareshield eats everything below HUD_FLOOR, so a bracket drawn down
+      // there is invisible and the pilot is told nothing. Below the floor the
+      // target becomes an edge caret like any other off-frame contact.
+      if (inFront && out.x > -200 * s && out.x < W + 200 * s
+        && out.y > -200 * s && out.y < H * HUD_FLOOR) {
         // Angular radius -> pixels through the vertical FOV.
         const half = Math.max(14 * s, t.angularRadius * state.pixelsPerRadian * 1.25);
         drawTargetBracket(out.x, out.y, half, t, { time });

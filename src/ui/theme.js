@@ -522,6 +522,27 @@ export const CSS = `
 @keyframes wc-toast-in { from { opacity: 0; transform: translateY(-.5em); } to { opacity: 1; } }
 @keyframes wc-toast-out { to { opacity: 0; transform: translateY(-.4em); } }
 
+/* ------------------------------------------------------- tactical plot ----- */
+/* Left of frame and under half the width: the cockpit HUD owns the centre and
+   the right-hand nav/shield stack, and this is an overlay on a live fight —
+   the sim keeps running while it is up, so it must not blind the pilot. */
+/* The panel ground is CSS, not a fillRect inside the canvas. Painted in the
+   canvas it composited far short of its stated alpha and the dashboard read
+   straight through the plot; as an element background it is simply opaque, and
+   it is one less full-panel fill per frame. */
+.wc-tacmap {
+  position: absolute; left: 2vw; bottom: 3.5vh;
+  width: min(30vw, 42vh); aspect-ratio: 1 / 1;
+  background: #050b12;
+  border: 1px solid rgba(127,228,255,0.42);
+  box-shadow: 0 0 2em rgba(0,0,0,.55);
+}
+.wc-tacmap__canvas { width: 100%; height: 100%; display: block; }
+.wc-tacmap__hint {
+  position: absolute; left: 0; right: 0; top: -1.5em; text-align: center;
+  font-size: clamp(9px, calc(0.3vw + 0.3vh), 12px); letter-spacing: .3em;
+  color: var(--wc-cyan-dim); text-transform: uppercase;
+}
 @media (prefers-reduced-motion: reduce) {
   .wc-crt__sweep, .wc-crt__flicker, .wc-obj.is-active .wc-obj__mark { animation: none; }
 }

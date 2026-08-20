@@ -28,6 +28,8 @@ export const ACTIONS = {
   autopilot: 'autopilot',
   fullStop: 'fullStop',
   commsMenu: 'commsMenu',
+  /** Toggles the in-flight tactical plot (src/ui/hud/TacMap.js). */
+  tacMap: 'tacMap',
   pause: 'pause',
   eject: 'eject',
   cloak: 'cloak',
@@ -63,6 +65,7 @@ const KEY_BINDINGS = {
   KeyS: ACTIONS.matchSpeed,
   Backquote: ACTIONS.fullStop,
   KeyC: ACTIONS.commsMenu,
+  KeyV: ACTIONS.tacMap,
   KeyP: ACTIONS.pause,
   KeyD: ACTIONS.decoy,
   KeyK: ACTIONS.cloak,

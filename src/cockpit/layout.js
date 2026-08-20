@@ -177,3 +177,23 @@ export const HUD_FLOOR = 0.560;
 /** HUD phosphor colour and over-range intensity (ARCHITECTURE §7). */
 export const HUD_COLOR = '#7fe4ff';
 export const HUD_INTENSITY = 1.62;
+
+/**
+ * Opacity of the dark backing laid under the symbology (`hud-backing` in
+ * `CockpitSystem.js`).
+ *
+ * A combiner is additive, so against a sky already at 1.0 the HUD adds nothing
+ * and disappears. Flying at the primary star through a nebula core, 18 % of the
+ * upper frame measured fully clipped and the entire HUD was invisible. This is
+ * the floor of contrast the symbology is guaranteed: high enough to survive a
+ * blown sky, low enough that on a dark one it reads as a faint phosphor halo
+ * rather than a black outline.
+ */
+export const HUD_BACKING = 0.88;
+
+/**
+ * Dilation radius of that backing, in framebuffer pixels at the *inner* ring;
+ * the outer ring is twice this. Measured: at 1 px the bloom spilling off a
+ * blown sky closed straight over the keyline and the symbology went with it.
+ */
+export const HUD_BACKING_PX = 1.6;

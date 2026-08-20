@@ -343,6 +343,12 @@ export function createVFXSystem(engine, opts = {}) {
     const e = resetEmit();
     e.px = _v3.x + _v.x * 1.6; e.py = _v3.y + _v.y * 1.6; e.pz = _v3.z + _v.z * 1.6;
     e.vx = _v.x * 14; e.vy = _v.y * 14; e.vz = _v.z * 14;
+    // Deliberately small, and left that way. Enlarging this to make the guns read
+    // from the cockpit was a wrong turn twice over: the muzzles sit on the wings,
+    // outside the canopy's field of view, so it never helped there — and at a
+    // chase camera's 64 m a 7.4 m white-hot puff subtends 94 px and stacked with
+    // the exhaust and haze into a saturated disc over the whole ship. Gunfire
+    // reads from the tracer streaks (see combat/projectiles.js), not from this.
     e.life = 0.075;
     e.size0 = 1.5; e.size1 = 4.2;
     e.temp0 = 1; e.tempPow = 0.6;

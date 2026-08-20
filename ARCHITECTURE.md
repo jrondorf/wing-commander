@@ -254,8 +254,32 @@ texture at 512². HUD colour is `#7fe4ff` at ~1.6 intensity so it blooms gently.
 afterburner and impacts, thruster flare responding to control input, cockpit
 inertia lag when manoeuvring.
 
+**Legibility.** Symbology exists so the pilot does not have to *find* things. Four
+numbers here are calibrated against measured captures and must not be changed
+without re-measuring:
+
+| Constant | Where | Value | Why |
+|---|---|---|---|
+| Contact box floor | `cockpit/hud.js` `CONTACT_MIN_HALF` | 11 px @900 px tall | A 22 m fighter at 2 km subtends 0.011 rad — nine pixels of dark hull on a dark nebula. Boxes stop scaling honestly below this or the contact is unfindable. |
+| Radar scope | `cockpit/radar.js` `DEFAULT_SCOPE` | 8 km | The globe's *display* depth, deliberately not the hull's 24–120 km `radarRange`. Scaled to detection range, a whole dogfight collapsed inside the boresight cross. |
+| Tracer streak | `combat/projectiles.js` | swept segment, ≤ 320 m | A bolt covers 25–50 m between frames against a 12–26 m body, so fixed-length bolts render as beads with gaps twice their own length. Drawing the swept segment makes frame N's tail meet frame N−1's nose. |
+| Tracer / plume floor | `combat/projectiles.js`, `combat/missiles.js` | 1.4 / 4.0 / 2.6 px | Screen-space floor on core, halo and motor plume. Without it a tracer at 3 km and a missile at 2 km are sub-pixel and simply absent. |
+
+Blip and tracer colours are additive *and* go through bloom and ACES. Anything
+pushed much past 2.0 clips to the same white smear, which is how a red hostile, a
+green friendly and an amber target all became one dot on the radar glass. Keep
+symbology emissives under the shoulder; brightness is not the same as legibility.
+
+Additive layers also *stack*, and a chase camera sits 64 m from the hull. Sizing
+a near-field effect for legibility at cockpit range is how a muzzle flash grown
+to 7.4 m — a reasonable-sounding number — became a 94 px white-hot puff that
+combined with the exhaust and haze into a saturated disc over the whole ship in
+`dogfight-chase`. Judge any near-field emitter in an external view before
+trusting a number that looked right from inside the canopy.
+
 **Sins that instantly fail review.** Flat unlit-looking hulls · constant roughness ·
 untextured smooth-shaded primitives · pure `#000` background · aliased HUD text ·
 bloom that whites out the frame · particles that are obvious camera-facing discs ·
 uniform grey "programmer art" · explosions that are just an orange sphere · a
-starfield of identical white dots.
+starfield of identical white dots · a contact the pilot can only find by luck ·
+guns that fire with nothing visible leaving the barrel.
